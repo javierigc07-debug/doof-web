@@ -1,25 +1,93 @@
-'use strict';
-/* Red primero, caché de respaldo y solo para la interfaz: lo que va al túnel o a GitHub nunca se
-   guarda, porque ahí viajan el token y los mensajes. */
-const CACHE = 'doof-prueba-1';
-const INTERFAZ = ['./', 'index.html', 'app.js', 'app.css', 'manifest.webmanifest', 'icono-192.png', 'icono-512.png'];
+/* Service worker de DoofApp.
+   Cachea solo el cascarón (HTML, CSS, JS, iconos). NUNCA la API: el chat en vivo no se puede
+   servir de una copia vieja, y por ella viaja el token, y la app ya sabe mostrar "PC sin conexión" sola.
+   El bloque de push queda listo para la fase 3 (avisos con la app cerrada). */
 
-self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(INTERFAZ)).then(() => self.skipWaiting()));
+const VERSION = 'doofapp-v2';
+const CASCARON = [
+  './',
+  'manifest.webmanifest',
+  'static/app.css',
+  'static/app.js',
+  'static/iconos/ojo.svg',
+  'static/iconos/icono-192.png',
+  'static/iconos/icono-512.png',
+];
+
+self.addEventListener('install', (evento) => {
+  evento.waitUntil(
+    caches.open(VERSION).then((cache) => cache.addAll(CASCARON)).then(() => self.skipWaiting())
+  );
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys()
-    .then((claves) => Promise.all(claves.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-    .then(() => self.clients.claim()));
+self.addEventListener('activate', (evento) => {
+  evento.waitUntil(
+    caches.keys()
+      .then((claves) => Promise.all(claves.filter((c) => c !== VERSION).map((c) => caches.delete(c))))
+      .then(() => self.clients.claim())
+  );
 });
 
-self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== self.location.origin) return;
-  e.respondWith(fetch(e.request)
-    .then((r) => {
-      if (r.ok) { const copia = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copia)); }
-      return r;
+self.addEventListener('fetch', (evento) => {
+  const pedido = evento.request;
+  if (pedido.method !== 'GET') return;
+
+  const url = new URL(pedido.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;   // la API siempre va a la red
+
+  if (pedido.mode === 'navigate') {
+    evento.respondWith(
+      fetch(pedido).catch(() => caches.match('./'))
+    );
+    return;
+  }
+
+  evento.respondWith(
+    caches.match(pedido).then((cacheado) => {
+      const red = fetch(pedido)
+        .then((respuesta) => {
+          if (respuesta && respuesta.ok) {
+            const copia = respuesta.clone();
+            caches.open(VERSION).then((cache) => cache.put(pedido, copia));
+          }
+          return respuesta;
+        })
+        .catch(() => cacheado);
+      return cacheado || red;
     })
-    .catch(() => caches.match(e.request)));
+  );
+});
+
+// ---------------------------------------------------------------- push (fase 3)
+self.addEventListener('push', (evento) => {
+  let datos = {};
+  try { datos = evento.data ? evento.data.json() : {}; } catch (e) { datos = { cuerpo: evento.data && evento.data.text() }; }
+  const titulo = datos.titulo || 'Doof';
+  const opciones = {
+    body: datos.cuerpo || 'Tienes algo pendiente.',
+    icon: 'static/iconos/icono-192.png',
+    badge: 'static/iconos/icono-192.png',
+    tag: datos.etiqueta || 'doof',
+    renotify: !!datos.etiqueta,
+    data: { url: datos.url || './' },
+    vibrate: [40, 30, 40],
+  };
+  evento.waitUntil(self.registration.showNotification(titulo, opciones));
+});
+
+self.addEventListener('notificationclick', (evento) => {
+  evento.notification.close();
+  const destino = new URL(evento.notification.data?.url || './', self.location).href;
+  evento.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
+      for (const ventana of ventanas) {
+        if (ventana.url.startsWith(self.location.origin)) {
+          ventana.navigate(destino);
+          return ventana.focus();
+        }
+      }
+      return self.clients.openWindow(destino);
+    })
+  );
 });

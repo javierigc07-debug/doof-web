@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://*.trycloudflare.com https://api.github.com; img-src 'self' data:; style-src 'self'; script-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#14171c">
+  <title>Doof</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icono-192.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main>
+    <h1>Doof <small>prueba de conexión</small></h1>
+
+    <section id="entrada" hidden>
+      <label for="token">Token de prueba</label>
+      <input id="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button id="guardar">Conectar</button>
+      <p id="error-token" class="error" role="alert"></p>
+    </section>
+
+    <section id="panel" hidden>
+      <p id="estado" role="status">Buscando a Doof...</p>
+      <div class="fila">
+        <input id="texto" aria-label="Mensaje" placeholder="Mensaje de prueba" autocomplete="off">
+        <button id="enviar">Enviar</button>
+      </div>
+      <div class="fila">
+        <button id="medir">Medir los dos modos</button>
+        <button id="instalar" hidden>Instalar app</button>
+        <button id="olvidar" class="secundario">Olvidar token</button>
+      </div>
+      <h2>Resultados</h2>
+      <pre id="resultados">Sin mediciones todavía.</pre>
+      <h2>Registro</h2>
+      <ol id="registro"></ol>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

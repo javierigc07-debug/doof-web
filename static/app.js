@@ -34,6 +34,9 @@
     sobreEnlace: null,
     evitarRepetidos: false,
     enlaceInicialVisto: false,
+    aprobaciones: [],
+    huellaRegistrada: false,
+    pidiendoCodigo: false,
     instalable: null,
     filtroHistorial: '',
   };
@@ -322,6 +325,7 @@
       pintarInicio();
     }
     await cargarConversaciones(false);
+    await cargarAprobaciones();
     pintarInicio();
     actualizarBarra();
     if (!S.enlaceInicialVisto) {
@@ -333,6 +337,188 @@
         verConversacion(sesion);
       }
     }
+  }
+
+  // ---------------------------------------------------------------- aprobaciones con huella
+  const b64uABytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const bytesAB64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const huellaDisponible = () => ES_REMOTO && !!window.PublicKeyCredential;
+
+  function postJson(ruta, cuerpo = {}) {
+    return api(ruta, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+  }
+
+  async function cargarAprobaciones() {
+    try {
+      const [a, h] = await Promise.all([api('/aprobaciones'), api('/huella')]);
+      S.aprobaciones = a.pendientes || [];
+      S.huellaRegistrada = !!h.registrada;
+    } catch (e) {
+      S.aprobaciones = [];
+    }
+    pintarAprobaciones();
+  }
+
+  function mensajeDeHuella(e) {
+    // NotAllowedError es lo que da Android si se cancela el diálogo o vence: no es una falla del servidor.
+    if (e.name === 'NotAllowedError') return 'Cancelaste la huella: no envié nada.';
+    if (e.name === 'InvalidStateError') return 'Este teléfono ya tiene la huella activada.';
+    return e.message || 'No pude verificar la huella.';
+  }
+
+  async function confirmarConHuella(aprobacion, boton) {
+    boton.disabled = true;
+    try {
+      const o = await postJson(`/aprobaciones/${aprobacion.id}/opciones`);
+      const firma = await navigator.credentials.get({ publicKey: {
+        ...o,
+        challenge: b64uABytes(o.challenge),
+        allowCredentials: (o.allowCredentials || []).map((c) => ({ ...c, id: b64uABytes(c.id) })),
+      } });
+      const r = firma.response;
+      await postJson(`/aprobaciones/${aprobacion.id}/confirmar`, {
+        id: firma.id,
+        rawId: bytesAB64u(firma.rawId),
+        type: firma.type,
+        response: {
+          clientDataJSON: bytesAB64u(r.clientDataJSON),
+          authenticatorData: bytesAB64u(r.authenticatorData),
+          signature: bytesAB64u(r.signature),
+          userHandle: r.userHandle ? bytesAB64u(r.userHandle) : null,
+        },
+        clientExtensionResults: firma.getClientExtensionResults(),
+      });
+      S.esperando = true;
+      S.desde = Date.now();
+      S.herramienta = 'mandar_whatsapp';
+      irAChat();
+      pintarMensajes();
+    } catch (e) {
+      avisar(mensajeDeHuella(e));
+    }
+    await cargarAprobaciones();
+  }
+
+  async function cancelarAprobacion(aprobacion) {
+    try {
+      await postJson(`/aprobaciones/${aprobacion.id}/cancelar`);
+      avisar('Cancelado: no envié nada.');
+    } catch (e) {
+      avisar('No pude cancelarlo: ' + e.message);
+    }
+    await cargarAprobaciones();
+  }
+
+  async function pedirCodigo(boton) {
+    boton.disabled = true;
+    try {
+      await postJson('/huella/codigo');
+      S.pidiendoCodigo = true;
+      avisar('Te mandé el código por Telegram.');
+    } catch (e) {
+      avisar(e.message);
+    }
+    pintarAprobaciones();
+  }
+
+  async function activarHuella(codigo, boton) {
+    boton.disabled = true;
+    try {
+      const o = await postJson('/huella/registro/opciones', { codigo });
+      const nueva = await navigator.credentials.create({ publicKey: {
+        ...o,
+        challenge: b64uABytes(o.challenge),
+        user: { ...o.user, id: b64uABytes(o.user.id) },
+        excludeCredentials: (o.excludeCredentials || []).map((c) => ({ ...c, id: b64uABytes(c.id) })),
+      } });
+      const r = nueva.response;
+      await postJson('/huella/registro', {
+        id: nueva.id,
+        rawId: bytesAB64u(nueva.rawId),
+        type: nueva.type,
+        response: {
+          clientDataJSON: bytesAB64u(r.clientDataJSON),
+          attestationObject: bytesAB64u(r.attestationObject),
+          transports: r.getTransports ? r.getTransports() : [],
+        },
+        clientExtensionResults: nueva.getClientExtensionResults(),
+      });
+      S.pidiendoCodigo = false;
+      avisar('Huella activada.');
+    } catch (e) {
+      avisar(mensajeDeHuella(e));
+    }
+    await cargarAprobaciones();
+  }
+
+  function botonDe(texto, alTocar, principal = false) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = texto;
+    if (principal) b.className = 'principal';
+    b.addEventListener('click', () => alTocar(b));
+    return b;
+  }
+
+  // Todo con textContent: el mensaje y el contacto salen del modelo, y aquí se aprueba. No pueden traer HTML que cambie lo que se ve.
+  function tarjetaAprobacion(aprobacion) {
+    const r = aprobacion.resumen || {};
+    const caja = document.createElement('section');
+    caja.className = 'aprobacion';
+    const titulo = document.createElement('h3');
+    titulo.textContent = 'Revisa antes de enviar por WhatsApp';
+    const para = document.createElement('p');
+    para.className = 'para';
+    para.textContent = 'Para: ' + [r.contacto, r.numero].filter(Boolean).join(' · ');
+    caja.append(titulo, para);
+    if (r.mensaje) {
+      const cuerpo = document.createElement('p');
+      cuerpo.className = 'cuerpo';
+      cuerpo.textContent = r.mensaje;
+      caja.append(cuerpo);
+    }
+    if ((r.archivos || []).length) {
+      const adjuntos = document.createElement('p');
+      adjuntos.className = 'nota';
+      adjuntos.textContent = 'Archivos: ' + r.archivos.join(', ');
+      caja.append(adjuntos);
+    }
+    const acciones = document.createElement('div');
+    acciones.className = 'acciones';
+    if (!huellaDisponible()) {
+      const nota = document.createElement('p');
+      nota.className = 'nota';
+      nota.textContent = 'La huella solo funciona en la app instalada del teléfono.';
+      caja.append(nota);
+    } else if (S.huellaRegistrada) {
+      acciones.append(botonDe('Enviar con huella', (b) => confirmarConHuella(aprobacion, b), true));
+    } else if (S.pidiendoCodigo) {
+      const campo = document.createElement('input');
+      campo.id = 'codigo-huella';
+      campo.placeholder = 'Código de Telegram';
+      campo.autocomplete = 'one-time-code';
+      campo.setAttribute('aria-label', 'Código de Telegram');
+      caja.append(campo);
+      acciones.append(botonDe('Activar huella', (b) => activarHuella(campo.value, b), true));
+    } else {
+      const nota = document.createElement('p');
+      nota.className = 'nota';
+      nota.textContent = 'Para enviar desde la app, primero activa la huella en este teléfono.';
+      caja.append(nota);
+      acciones.append(botonDe('Activar huella', pedirCodigo, true));
+    }
+    acciones.append(botonDe('Cancelar', () => cancelarAprobacion(aprobacion)));
+    caja.append(acciones);
+    return caja;
+  }
+
+  function pintarAprobaciones() {
+    const caja = $('#aprobaciones');
+    const escrito = $('#codigo-huella')?.value;
+    caja.textContent = '';
+    S.aprobaciones.forEach((a) => caja.appendChild(tarjetaAprobacion(a)));
+    if (escrito && $('#codigo-huella')) $('#codigo-huella').value = escrito;
+    caja.hidden = !S.aprobaciones.length;
   }
 
   async function conectar() {
@@ -1023,6 +1209,8 @@
   function manejarEvento(tipo, datos) {
     if (tipo === 'mensaje') {
       recibir(datos);
+    } else if (tipo === 'aprobacion') {
+      cargarAprobaciones();
     } else if (tipo === 'pensamiento') {
       if (datos.tool) S.herramienta = datos.tool;
       actualizarPensando();

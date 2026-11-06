@@ -519,6 +519,7 @@
     S.aprobaciones.forEach((a) => caja.appendChild(tarjetaAprobacion(a)));
     if (escrito && $('#codigo-huella')) $('#codigo-huella').value = escrito;
     caja.hidden = !S.aprobaciones.length;
+    document.body.classList.toggle('con-aprobacion', S.aprobaciones.length > 0);     // el aviso flotante no debe tapar sus botones
   }
 
   async function conectar() {

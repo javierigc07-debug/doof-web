@@ -779,6 +779,7 @@ body.con-hoja .vista { overflow: hidden; }
 
 /* ---------------------------------------------------------------- aprobaciones con huella */
 .aprobaciones { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; max-height: 45dvh; overflow-y: auto; }
+body.con-aprobacion .aviso { top: calc(64px + env(safe-area-inset-top)); bottom: auto; }
 .aprobacion { padding: 14px; background: var(--superficie-2); border: 1px solid var(--acento); border-radius: 16px; }
 .aprobacion h3 { margin: 0 0 8px; font-size: 14.5px; font-weight: 650; }
 .aprobacion .para { margin: 0; font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }

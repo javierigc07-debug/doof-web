@@ -39,6 +39,13 @@
     pidiendoCodigo: false,
     instalable: null,
     filtroHistorial: '',
+    luz: null,
+    luzFalla: null,
+    luzLeida: null,
+    pc: null,
+    pcFalla: null,
+    apagadoHasta: 0,          // en el reloj del teléfono: el servidor manda cuánto falta, no una hora
+    turnoSeccion: 0,          // cambiarlo deja sin efecto el refresco de una sección que ya no se ve
   };
 
   const NOMBRE = 'Javier';
@@ -51,6 +58,12 @@
   // GitHub da 60 lecturas por hora sin autenticar: con la PC apagada, un reintento fijo cada 10 s las agotaría en diez
   // minutos y la app seguiría sin poder leer la dirección cuando la PC volviera.
   const REINTENTOS_S = [10, 10, 20, 30, 60, 60, 120, 300];
+  const REFRESCO_LUZ_MS = 15000;
+  const REFRESCO_PC_MS = 10000;
+  const TIEMPO_LUZ_MS = 35000;
+  const APAGANDO_COMO_MAXIMO_MS = 3 * 60 * 1000;   // si sigue viva pasado esto, Windows no llegó a apagarse
+  const TIPO_APAGAR = 'apagar_pc';
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -361,7 +374,7 @@
 
   function mensajeDeHuella(e) {
     // NotAllowedError es lo que da Android si se cancela el diálogo o vence: no es una falla del servidor.
-    if (e.name === 'NotAllowedError') return 'Cancelaste la huella: no envié nada.';
+    if (e.name === 'NotAllowedError') return 'Cancelaste la huella: no hice nada.';
     if (e.name === 'InvalidStateError') return 'Este teléfono ya tiene la huella activada.';
     return e.message || 'No pude verificar la huella.';
   }
@@ -376,7 +389,7 @@
         allowCredentials: (o.allowCredentials || []).map((c) => ({ ...c, id: b64uABytes(c.id) })),
       } });
       const r = firma.response;
-      await postJson(`/aprobaciones/${aprobacion.id}/confirmar`, {
+      const resultado = await postJson(`/aprobaciones/${aprobacion.id}/confirmar`, {
         id: firma.id,
         rawId: bytesAB64u(firma.rawId),
         type: firma.type,
@@ -388,11 +401,16 @@
         },
         clientExtensionResults: firma.getClientExtensionResults(),
       });
-      S.esperando = true;
-      S.desde = Date.now();
-      S.herramienta = 'mandar_whatsapp';
-      irAChat();
-      pintarMensajes();
+      if (aprobacion.tipo === TIPO_APAGAR) {
+        ponerCuentaApagado(resultado.apagado_faltan_seg || 0);
+        pintarPc();
+      } else {
+        S.esperando = true;
+        S.desde = Date.now();
+        S.herramienta = 'mandar_whatsapp';
+        irAChat();
+        pintarMensajes();
+      }
     } catch (e) {
       avisar(mensajeDeHuella(e));
     }
@@ -402,7 +420,7 @@
   async function cancelarAprobacion(aprobacion) {
     try {
       await postJson(`/aprobaciones/${aprobacion.id}/cancelar`);
-      avisar('Cancelado: no envié nada.');
+      avisar(aprobacion.tipo === TIPO_APAGAR ? 'Cancelado: la PC sigue prendida.' : 'Cancelado: no envié nada.');
     } catch (e) {
       avisar('No pude cancelarlo: ' + e.message);
     }
@@ -489,6 +507,28 @@
       adjuntos.textContent = 'Archivos: ' + r.archivos.join(', ');
       caja.append(adjuntos);
     }
+    ponerAccionesDeHuella(caja, aprobacion, 'Enviar con huella', 'Para enviar desde la app, primero activa la huella en este teléfono.');
+    return caja;
+  }
+
+  function tarjetaApagado(aprobacion) {
+    const margen = (aprobacion.resumen || {}).margen_seg;
+    const caja = document.createElement('section');
+    caja.className = 'aprobacion';
+    const titulo = document.createElement('h3');
+    titulo.textContent = '¿Apagar la PC?';
+    const cuerpo = document.createElement('p');
+    cuerpo.className = 'cuerpo';
+    cuerpo.textContent = `Se apaga ${margen} segundos después de aprobar. Lo que esté abierto sin guardar se pierde.`;
+    const nota = document.createElement('p');
+    nota.className = 'cuerpo';
+    nota.textContent = 'Doof se apaga con ella: sin Telegram ni avisos, y desde la app no se puede volver a encender.';
+    caja.append(titulo, cuerpo, nota);
+    ponerAccionesDeHuella(caja, aprobacion, 'Apagar con huella', 'Para apagar desde la app, primero activa la huella en este teléfono.');
+    return caja;
+  }
+
+  function ponerAccionesDeHuella(caja, aprobacion, textoPrincipal, textoSinHuella) {
     const acciones = document.createElement('div');
     acciones.className = 'acciones';
     if (!huellaDisponible()) {
@@ -497,7 +537,7 @@
       nota.textContent = 'La huella solo funciona en la app instalada del teléfono.';
       caja.append(nota);
     } else if (S.huellaRegistrada) {
-      acciones.append(botonDe('Enviar con huella', (b) => confirmarConHuella(aprobacion, b), true));
+      acciones.append(botonDe(textoPrincipal, (b) => confirmarConHuella(aprobacion, b), true));
     } else if (S.pidiendoCodigo) {
       const campo = document.createElement('input');
       campo.id = 'codigo-huella';
@@ -509,23 +549,28 @@
     } else {
       const nota = document.createElement('p');
       nota.className = 'nota';
-      nota.textContent = 'Para enviar desde la app, primero activa la huella en este teléfono.';
+      nota.textContent = textoSinHuella;
       caja.append(nota);
       acciones.append(botonDe('Activar huella', pedirCodigo, true));
     }
     acciones.append(botonDe('Cancelar', () => cancelarAprobacion(aprobacion)));
     caja.append(acciones);
-    return caja;
   }
 
+  // La de apagar vive en la sección PC: en el chat, un botón de apagar junto a lo que se escribe sería un mal toque esperando a pasar.
   function pintarAprobaciones() {
     const caja = $('#aprobaciones');
+    const cajaPc = $('#pc-aprobacion');
     const escrito = $('#codigo-huella')?.value;
+    const delChat = S.aprobaciones.filter((a) => a.tipo !== TIPO_APAGAR);
     caja.textContent = '';
-    S.aprobaciones.forEach((a) => caja.appendChild(tarjetaAprobacion(a)));
+    cajaPc.textContent = '';
+    delChat.forEach((a) => caja.appendChild(tarjetaAprobacion(a)));
+    S.aprobaciones.filter((a) => a.tipo === TIPO_APAGAR).slice(0, 1).forEach((a) => cajaPc.appendChild(tarjetaApagado(a)));
     if (escrito && $('#codigo-huella')) $('#codigo-huella').value = escrito;
-    caja.hidden = !S.aprobaciones.length;
-    document.body.classList.toggle('con-aprobacion', S.aprobaciones.length > 0);     // el aviso flotante no debe tapar sus botones
+    caja.hidden = !delChat.length;
+    document.body.classList.toggle('con-aprobacion', delChat.length > 0);     // el aviso flotante no debe tapar sus botones; la de apagar no está abajo
+    if (S.vista === 'pc') pintarAccionesPc();
   }
 
   async function conectar() {
@@ -620,12 +665,14 @@
     document.body.dataset.vista = S.vista;
     $('#vista-inicio').classList.toggle('activa', S.vista === 'inicio');
     $('#vista-chat').classList.toggle('activa', S.vista === 'chat');
+    $('#vista-luz').classList.toggle('activa', S.vista === 'luz');
+    $('#vista-pc').classList.toggle('activa', S.vista === 'pc');
     $('#btn-atras').hidden = S.vista === 'inicio';
-    $('#btn-nueva-barra').hidden = S.vista === 'inicio';
+    $('#btn-nueva-barra').hidden = S.vista !== 'chat';
     $('#btn-historial').hidden = false;
     $('#barra-titulo').textContent = S.vista === 'chat' && S.soloLectura && S.inicioVista
       ? capitalizar(fechaLarga(new Date(S.inicioVista)))
-      : 'Doof';
+      : TITULOS_DE_VISTA[S.vista] || 'Doof';
     $('#aviso-lectura').hidden = !(S.vista === 'chat' && S.soloLectura);
     actualizarEstado();
   }
@@ -638,14 +685,40 @@
     pintarInicio();
   }
 
+  // Entre vistas se reemplaza la entrada del historial: "atrás" siempre vuelve al inicio, no recorre lo que se fue abriendo.
+  function entrarAVista(vista) {
+    const desdeInicio = S.vista === 'inicio';
+    S.vista = vista;
+    actualizarBarra();
+    if (desdeInicio) history.pushState({ vista }, '');
+    else history.replaceState({ vista }, '');
+  }
+
   function irAChat() {
-    if (S.vista !== 'chat') {
-      S.vista = 'chat';
-      actualizarBarra();
-      history.pushState({ vista: 'chat' }, '');
-    }
+    if (S.vista !== 'chat') entrarAVista('chat');
     pintarMensajes();
     setTimeout(() => alFinal(true), 30);
+  }
+
+  async function irASeccion(vista) {
+    cerrarHojas();
+    if (S.soloLectura) await volverActiva(false);
+    if (S.vista !== vista) entrarAVista(vista);
+    pintarAprobaciones();
+    if (vista === 'luz') pintarLuz();
+    else pintarPc();
+    $('#vista-' + vista).scrollTop = 0;
+    refrescarSeccion();
+  }
+
+  function alElegirDelMenu(destino) {
+    cerrarHojas();
+    if (destino === 'conversaciones') abrirHoja('hoja-historial');
+    else if (destino === 'inicio') {
+      if (S.soloLectura) volverActiva(false);
+      else if (history.state?.vista) history.back();
+      else irAInicio();
+    } else irASeccion(destino);
   }
 
   async function volverActiva(abrirChat = false) {
@@ -670,6 +743,216 @@
   function volver() {
     if (S.soloLectura) volverActiva(false);
     else irAInicio();
+  }
+
+  // ---------------------------------------------------------------- luz y PC
+  // Todo llega resuelto de Doof: aquí no se decide si hay luz ni se calcula nada, solo se pinta.
+  async function refrescarSeccion() {
+    const turno = ++S.turnoSeccion;
+    const vista = S.vista;
+    if (vista !== 'luz' && vista !== 'pc') return;
+    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : cargarPc());
+    if (turno !== S.turnoSeccion || S.vista !== vista) return;
+    await pausa(vista === 'luz' ? REFRESCO_LUZ_MS : REFRESCO_PC_MS);
+    if (turno === S.turnoSeccion) refrescarSeccion();
+  }
+
+  function elemento(etiqueta, clase, texto) {
+    const n = document.createElement(etiqueta);
+    if (clase) n.className = clase;
+    if (texto !== undefined) n.textContent = texto;
+    return n;
+  }
+
+  function encabezadoCasa(clase, titulo, detalle) {
+    const caja = elemento('div', 'casa ' + clase);
+    const h2 = elemento('h2', '', titulo);
+    h2.id = 'casa-titulo-' + S.vista;
+    caja.append(elemento('i'), h2);
+    if (detalle) caja.append(elemento('p', '', detalle));
+    return caja;
+  }
+
+  function textoDeFalla(e) {
+    if (e.sinRed) return 'No llego a la PC. Puede estar apagada o sin internet: desde aquí no se distingue.';
+    if (e.status === 404) return 'Falta reiniciar Doof en la PC para activar esta sección.';
+    return e.message;
+  }
+
+  const decimal = (n) => String(n).replace('.', ',');
+
+  function lecturas(pares) {
+    const lista = elemento('dl', 'lecturas');
+    for (const [nombre, valor] of pares) {
+      const fila = elemento('div');
+      fila.append(elemento('dt', '', nombre), elemento('dd', '', valor));
+      lista.appendChild(fila);
+    }
+    return lista;
+  }
+
+  async function cargarLuz() {
+    try {
+      S.luz = await api('/luz', {}, TIEMPO_LUZ_MS);
+      S.luzFalla = null;
+      S.luzLeida = new Date();
+    } catch (e) {
+      if (e.status === 401) return;
+      S.luz = null;       // una lectura vieja haría creer que todavía se sabe cómo está la casa
+      S.luzFalla = e;
+    }
+    if (S.vista === 'luz') pintarLuz();
+  }
+
+  function encabezadoLuz() {
+    const d = S.luz;
+    if (S.luzFalla) return encabezadoCasa('', 'No sé si hay luz', textoDeFalla(S.luzFalla));
+    if (!d) return encabezadoCasa('', 'Mirando las baterías…');
+    if (d.estado === 'sin_respuesta') return encabezadoCasa('', 'No sé si hay luz', 'La PC no llega a la Raspberry. Si la VPN está prendida, la bloquea.');
+    if (d.estado === 'bms_desconectado') return encabezadoCasa('', 'No sé si hay luz', 'La Raspberry responde, pero no está leyendo el BMS de las baterías.');
+    if (d.estado === 'sin_luz') {
+      const corte = d.corte_actual;
+      return encabezadoCasa('mal', 'Sin luz', corte ? `Desde ${corte.desde} · lleva ${corte.dura}` : 'Las baterías están sosteniendo la casa.');
+    }
+    const sentido = { cargando: 'Las baterías están cargando.', descargando: 'Las baterías descargan un momento, sin corte confirmado.', reposo: 'Las baterías están en reposo.' };
+    return encabezadoCasa('bien', 'Hay luz', sentido[d.bateria?.sentido]);
+  }
+
+  function nodoBateria(b) {
+    const caja = elemento('div', 'bateria');
+    const cab = elemento('div', 'bateria-cab');
+    cab.append(elemento('b', '', b.soc_pct === null ? 'Batería sin dato' : `${b.soc_pct} %`));
+    if (b.restante) cab.append(elemento('small', '', `${b.restante.etiqueta} ${b.restante.texto}`.trim()));
+    caja.append(cab);
+    if (b.soc_pct !== null) {
+      const medidor = elemento('div', 'medidor' + (b.soc_pct <= 15 ? ' bajo' : b.soc_pct <= 35 ? ' medio' : ''));
+      const relleno = elemento('span');
+      relleno.style.width = Math.min(100, Math.max(0, b.soc_pct)) + '%';
+      medidor.appendChild(relleno);
+      caja.append(medidor);
+    }
+    return caja;
+  }
+
+  function pintarLuz() {
+    const caja = $('#luz-contenido');
+    caja.textContent = '';
+    caja.appendChild(encabezadoLuz());
+    const d = S.luz;
+    if (!d || !d.bateria) return;
+    const b = d.bateria;
+    caja.append(nodoBateria(b));
+    const sinDato = (v, unidad) => (v === null || v === undefined ? '—' : `${decimal(v)} ${unidad}`);
+    caja.append(lecturas([['Potencia', sinDato(b.potencia_w, 'W')], ['Voltaje', sinDato(b.voltaje_v, 'V')], ['Temperatura', sinDato(b.temperatura_c, '°C')]]));
+    if (d.cortes?.length) {
+      caja.append(elemento('h3', 'casa-subtitulo', 'Últimos cortes'));
+      for (const c of d.cortes) {
+        const fila = elemento('div', 'corte');
+        fila.append(elemento('span', '', c.inicio), elemento('small', '', c.potencia_w ? `${c.dura} · ${c.potencia_w} W` : c.dura));
+        caja.append(fila);
+      }
+    }
+    const partes = [];
+    if (d.totales) partes.push(`${d.totales.cortes} ${d.totales.cortes === 1 ? 'corte' : 'cortes'} y ${decimal(d.totales.horas)} h con las baterías en total.`);
+    if (S.luzLeida) partes.push(`Leído a las ${hora(S.luzLeida)}.`);
+    if (partes.length) caja.append(elemento('p', 'casa-nota', partes.join(' ')));
+  }
+
+  function ponerCuentaApagado(segundos) {
+    S.apagadoHasta = segundos > 0 ? Date.now() + segundos * 1000 : 0;
+  }
+
+  const segundosParaApagar = () => Math.max(0, Math.ceil((S.apagadoHasta - Date.now()) / 1000));
+
+  async function cargarPc() {
+    try {
+      S.pc = await api('/pc');
+      S.pcFalla = null;
+      const faltan = S.pc.apagado_faltan_seg || 0;
+      if (faltan > 0) ponerCuentaApagado(faltan);
+      // Si faltaba y ya no: lo cancelaron desde otro lado. Si ya pasó la hora, se está apagando, salvo que pase demasiado.
+      else if (segundosParaApagar() > 0 || Date.now() - S.apagadoHasta > APAGANDO_COMO_MAXIMO_MS) S.apagadoHasta = 0;
+    } catch (e) {
+      if (e.status === 401) return;
+      S.pc = null;
+      S.pcFalla = e;
+    }
+    if (S.vista === 'pc') pintarPc();
+  }
+
+  function textoCuenta() {
+    const faltan = segundosParaApagar();
+    return faltan > 0 ? `Se apaga en ${faltan} s` : 'Apagándose…';
+  }
+
+  let relojCuenta = null;
+  function pintarPc() {
+    const caja = $('#pc-datos');
+    caja.textContent = '';
+    clearInterval(relojCuenta);
+    if (S.apagadoHasta && Date.now() - S.apagadoHasta > APAGANDO_COMO_MAXIMO_MS) S.apagadoHasta = 0;
+    if (S.apagadoHasta) {
+      caja.appendChild(encabezadoCasa('alerta', textoCuenta(), 'Lo que esté abierto se va a cerrar.'));
+      relojCuenta = setInterval(() => {
+        const titulo = $('#casa-titulo-pc');
+        if (titulo) titulo.textContent = textoCuenta();
+        if (!segundosParaApagar()) { clearInterval(relojCuenta); pintarAccionesPc(); }
+      }, 1000);
+    } else if (S.pcFalla) {
+      caja.appendChild(encabezadoCasa('mal', 'No responde', textoDeFalla(S.pcFalla)));
+    } else if (!S.pc) {
+      caja.appendChild(encabezadoCasa('', 'Preguntándole a la PC…'));
+    } else {
+      caja.appendChild(encabezadoCasa('bien', 'Encendida', `Desde hace ${S.pc.encendida_hace}`));
+    }
+    if (S.pc && !S.pcFalla) caja.appendChild(lecturas([['CPU', `${S.pc.cpu} %`], ['Memoria', `${S.pc.ram} %`]]));
+    pintarAccionesPc();
+  }
+
+  function botonCasa(texto, clase, alTocar) {
+    const b = elemento('button', 'accion-casa' + (clase ? ' ' + clase : ''), texto);
+    b.type = 'button';
+    if (alTocar) b.addEventListener('click', () => alTocar(b));
+    return b;
+  }
+
+  async function pedirApagado(boton) {
+    boton.disabled = true;
+    try {
+      await postJson('/pc/apagar');
+      await cargarAprobaciones();
+    } catch (e) {
+      boton.disabled = false;
+      avisar(e.status === 404 ? 'Falta reiniciar Doof en la PC.' : 'No pude pedirlo: ' + e.message);
+    }
+  }
+
+  async function cancelarApagado(boton) {
+    boton.disabled = true;
+    try {
+      const d = await postJson('/pc/cancelar-apagado');
+      S.apagadoHasta = 0;
+      avisar(d.ok ? 'Apagado cancelado. La PC sigue prendida.' : 'Windows ya no tenía nada programado.');
+    } catch (e) {
+      avisar('No pude cancelarlo: ' + e.message);
+    }
+    await cargarPc();
+    pintarPc();
+  }
+
+  function pintarAccionesPc() {
+    const caja = $('#pc-acciones');
+    caja.textContent = '';
+    const tarjetaAbierta = S.aprobaciones.some((a) => a.tipo === TIPO_APAGAR);
+    if (S.apagadoHasta) {
+      if (segundosParaApagar() > 0) caja.append(botonCasa('Cancelar el apagado', '', cancelarApagado));
+    } else if (S.pc && !S.pcFalla && !tarjetaAbierta) {
+      caja.append(botonCasa('Apagar la PC', 'peligro', pedirApagado));
+    }
+    const encender = botonCasa('Encender la PC');
+    encender.disabled = true;
+    caja.append(encender);
+    caja.append(elemento('p', 'casa-nota', 'Encender desde aquí todavía no se puede: falta la prueba de Wake-on-LAN y configurar la Raspberry.'));
   }
 
   // ---------------------------------------------------------------- inicio
@@ -1132,6 +1415,10 @@
       pintarHistorial();
       setTimeout(() => $('#buscar').focus(), 250);
     }
+    if (id === 'hoja-menu') {
+      const actual = S.vista === 'chat' ? 'inicio' : S.vista;
+      $$('#hoja-menu .fila').forEach((f) => f.classList.toggle('actual', f.dataset.destino === actual));
+    }
   }
 
   function cerrarHojas() {
@@ -1217,7 +1504,12 @@
     if (tipo === 'mensaje') {
       recibir(datos);
     } else if (tipo === 'aprobacion') {
-      cargarAprobaciones();
+      // La tarjeta del WhatsApp vive sobre el compositor, que en Luz y PC no se ve: sin esto vencería sin que Javier la vea.
+      cargarAprobaciones().then(() => {
+        if ((S.vista === 'luz' || S.vista === 'pc') && S.aprobaciones.some((a) => a.tipo !== TIPO_APAGAR)) {
+          avisar('Doof espera tu huella', 'Ver', () => irAChat());
+        }
+      });
     } else if (tipo === 'pensamiento') {
       if (datos.tool) S.herramienta = datos.tool;
       actualizarPensando();
@@ -1294,10 +1586,11 @@
     $('#btn-enviar').addEventListener('click', () => enviarTexto($('#entrada').value));
     $('#btn-atras').addEventListener('click', () => {
       if (S.soloLectura) { volverActiva(false); return; }
-      if (history.state?.vista === 'chat') history.back();
+      if (history.state?.vista) history.back();
       else irAInicio();
     });
-    $('#btn-historial').addEventListener('click', () => abrirHoja('hoja-historial'));
+    $('#btn-historial').addEventListener('click', () => abrirHoja('hoja-menu'));
+    $$('#hoja-menu .fila').forEach((f) => f.addEventListener('click', () => alElegirDelMenu(f.dataset.destino)));
     $('#btn-nueva-barra').addEventListener('click', () => nuevaConversacion());
     $('#ver-todo').addEventListener('click', () => abrirHoja('hoja-historial'));
     $('#continuar').addEventListener('click', () => irAChat());
@@ -1347,12 +1640,12 @@
       if (e.key === 'Escape') {
         if (!$('#velo').hidden) { $('#velo').hidden = true; $('#velo').textContent = ''; return; }
         if ($('.hoja.abierta')) { cerrarHojas(); return; }
-        if (S.vista === 'chat') volver();
+        if (S.vista !== 'inicio') volver();
       }
     });
 
     window.addEventListener('popstate', () => {
-      if (S.vista === 'chat') volver();
+      if (S.vista !== 'inicio') volver();
     });
 
     document.addEventListener('paste', (e) => {
@@ -1370,7 +1663,9 @@
     });
 
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) revisarAlVolver();
+      if (document.hidden) return;
+      revisarAlVolver();
+      refrescarSeccion();
     });
 
     window.addEventListener('beforeinstallprompt', (e) => {

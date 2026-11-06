@@ -471,6 +471,12 @@
     para.className = 'para';
     para.textContent = 'Para: ' + [r.contacto, r.numero].filter(Boolean).join(' · ');
     caja.append(titulo, para);
+    if (r.desde) {
+      const desde = document.createElement('p');
+      desde.className = 'para';
+      desde.textContent = 'Desde: ' + r.desde;
+      caja.append(desde);
+    }
     if (r.mensaje) {
       const cuerpo = document.createElement('p');
       cuerpo.className = 'cuerpo';

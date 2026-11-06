@@ -808,7 +808,12 @@
     const d = S.luz;
     if (S.luzFalla) return encabezadoCasa('', 'No sé si hay luz', textoDeFalla(S.luzFalla));
     if (!d) return encabezadoCasa('', 'Mirando las baterías…');
-    if (d.estado === 'sin_respuesta') return encabezadoCasa('', 'No sé si hay luz', 'La PC no llega a la Raspberry. Si la VPN está prendida, la bloquea.');
+    if (d.estado === 'sin_respuesta' && d.falta_clave) return encabezadoCasa('', 'No sé si hay luz', 'A Doof le falta la contraseña del panel de Baterías para leer lo que publica la Raspberry.');
+    if (d.estado === 'sin_respuesta') {
+      const u = d.ultimo;
+      const ultimo = u ? ` Último dato hace ${u.hace}${u.soc_pct === null ? '' : `: batería al ${u.soc_pct} %`}.` : '';
+      return encabezadoCasa('', 'No sé si hay luz', 'No llegan datos recientes de la Raspberry: se reinicia con cada corte, o puede estar sin internet.' + ultimo);
+    }
     if (d.estado === 'bms_desconectado') return encabezadoCasa('', 'No sé si hay luz', 'La Raspberry responde, pero no está leyendo el BMS de las baterías.');
     if (d.estado === 'sin_luz') {
       const corte = d.corte_actual;

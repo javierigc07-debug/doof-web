@@ -63,7 +63,8 @@
   const TIEMPO_LUZ_MS = 35000;
   const APAGANDO_COMO_MAXIMO_MS = 3 * 60 * 1000;   // si sigue viva pasado esto, Windows no llegó a apagarse
   const TIPO_APAGAR = 'apagar_pc';
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC' };
+  const TIPO_PAGO = 'pago_movil';
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', agentes: 'Agentes' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -82,6 +83,7 @@
     ver_notas: 'buscando calificaciones',
     mandar_whatsapp: 'escribiendo por WhatsApp',
     pagar_movil: 'preparando el pago',
+    pago_aprobado: 'pagando en Ubii',
     convertir_moneda: 'calculando la tasa',
     comprar_usdt: 'revisando Binance',
     abrir_tutorial: 'buscando el tutorial',
@@ -407,7 +409,7 @@
       } else {
         S.esperando = true;
         S.desde = Date.now();
-        S.herramienta = 'mandar_whatsapp';
+        S.herramienta = aprobacion.tipo === TIPO_PAGO ? 'pago_aprobado' : 'mandar_whatsapp';
         irAChat();
         pintarMensajes();
       }
@@ -420,7 +422,8 @@
   async function cancelarAprobacion(aprobacion) {
     try {
       await postJson(`/aprobaciones/${aprobacion.id}/cancelar`);
-      avisar(aprobacion.tipo === TIPO_APAGAR ? 'Cancelado: la PC sigue prendida.' : 'Cancelado: no envié nada.');
+      const avisos = { [TIPO_APAGAR]: 'Cancelado: la PC sigue prendida.', [TIPO_PAGO]: 'Cancelado: no se movió nada.' };
+      avisar(avisos[aprobacion.tipo] || 'Cancelado: no envié nada.');
     } catch (e) {
       avisar('No pude cancelarlo: ' + e.message);
     }
@@ -511,6 +514,41 @@
     return caja;
   }
 
+  // Lo que se muestra viene de la pantalla de Ubii, ya comprobado por el piloto, y formateado en la PC: aquí no se hace ninguna cuenta.
+  function tarjetaPago(aprobacion) {
+    const r = aprobacion.resumen || {};
+    const caja = document.createElement('section');
+    caja.className = 'aprobacion';
+    const parrafo = (clase, texto) => {
+      const p = document.createElement('p');
+      p.className = clase;
+      p.textContent = texto;
+      return p;
+    };
+    const titulo = document.createElement('h3');
+    titulo.textContent = 'Revisa antes de pagar';
+    caja.append(titulo, parrafo('monto', r.monto || ''));
+    if (r.equivalente) caja.append(parrafo('dato', r.equivalente));
+    caja.append(parrafo('para', 'Para: ' + (r.contacto || '')));
+    [['Banco', r.banco], ['Cédula', r.documento], ['Teléfono', r.telefono]].forEach(([etiqueta, valor]) => {
+      if (valor) caja.append(parrafo('dato', `${etiqueta}: ${valor}`));
+    });
+    if (r.nuevo) {
+      caja.append(parrafo('dato aparte', r.guardar_frecuente ? 'Destinatario nuevo: queda guardado en Ubii como frecuente.' : 'Destinatario nuevo: no se guarda en Ubii.'));
+    }
+    if (r.comprobante) caja.append(parrafo('dato aparte', r.comprobante));
+    if ((r.pantalla || []).length) {
+      const detalle = document.createElement('details');
+      detalle.className = 'pantalla-ubii';
+      const resumen = document.createElement('summary');
+      resumen.textContent = 'Lo que dice la pantalla de Ubii';
+      detalle.append(resumen, parrafo('nota', r.pantalla.join('\n')));
+      caja.append(detalle);
+    }
+    ponerAccionesDeHuella(caja, aprobacion, 'Pagar con huella', 'Para pagar desde la app, primero activa la huella en este teléfono.');
+    return caja;
+  }
+
   function tarjetaApagado(aprobacion) {
     const margen = (aprobacion.resumen || {}).margen_seg;
     const caja = document.createElement('section');
@@ -565,7 +603,7 @@
     const delChat = S.aprobaciones.filter((a) => a.tipo !== TIPO_APAGAR);
     caja.textContent = '';
     cajaPc.textContent = '';
-    delChat.forEach((a) => caja.appendChild(tarjetaAprobacion(a)));
+    delChat.forEach((a) => caja.appendChild(a.tipo === TIPO_PAGO ? tarjetaPago(a) : tarjetaAprobacion(a)));
     S.aprobaciones.filter((a) => a.tipo === TIPO_APAGAR).slice(0, 1).forEach((a) => cajaPc.appendChild(tarjetaApagado(a)));
     if (escrito && $('#codigo-huella')) $('#codigo-huella').value = escrito;
     caja.hidden = !delChat.length;
@@ -667,6 +705,7 @@
     $('#vista-chat').classList.toggle('activa', S.vista === 'chat');
     $('#vista-luz').classList.toggle('activa', S.vista === 'luz');
     $('#vista-pc').classList.toggle('activa', S.vista === 'pc');
+    $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
     $('#btn-atras').hidden = S.vista === 'inicio';
     $('#btn-nueva-barra').hidden = S.vista !== 'chat';
     $('#btn-historial').hidden = false;
@@ -706,6 +745,7 @@
     if (S.vista !== vista) entrarAVista(vista);
     pintarAprobaciones();
     if (vista === 'luz') pintarLuz();
+    else if (vista === 'agentes') pintarAgentes();
     else pintarPc();
     $('#vista-' + vista).scrollTop = 0;
     refrescarSeccion();
@@ -745,15 +785,101 @@
     else irAInicio();
   }
 
+  // ---------------------------------------------------------------- agentes
+  // Solo lectura: Doof lista las sesiones de agentes de terminal de la PC y lo que dejaron; aquí no se les da órdenes. El aviso de "terminó"
+  // llega como un mensaje más de Doof por el chat, así que no hay nada que escuchar aparte.
+  const REFRESCO_AGENTES_MS = 8000;
+  const A = { lista: null, falla: null, abierto: null, detalle: null, detalleFalla: null, leida: null };
+
+  async function cargarAgentes() {
+    try {
+      A.lista = await api('/agentes');
+      A.falla = null;
+      A.leida = new Date();
+      if (A.abierto) {
+        try {
+          A.detalle = await api('/agentes/' + encodeURIComponent(A.abierto));
+          A.detalleFalla = null;
+        } catch (e) {
+          if (e.status === 401) return;
+          A.detalleFalla = e;     // 404: la sesión se cerró mientras se miraba
+        }
+      }
+    } catch (e) {
+      if (e.status === 401) return;
+      A.lista = null;             // una lista vieja haría creer que un agente sigue trabajando
+      A.falla = e;
+    }
+    if (S.vista === 'agentes') pintarAgentes();
+  }
+
+  function filaAgente(a) {
+    const b = elemento('button', 'agente-fila' + (a.estado === 'trabajando' ? ' trabajando' : ''));
+    b.type = 'button';
+    const texto = elemento('span', 'agente-texto');
+    texto.append(elemento('b', '', a.nombre), elemento('small', '', `${a.proyecto} · ${a.estado === 'trabajando' ? 'trabajando desde' : 'libre desde'} ${a.hace}`));
+    b.append(elemento('i', 'agente-punto'), texto);
+    b.addEventListener('click', () => { A.abierto = a.id; A.detalle = null; A.detalleFalla = null; pintarAgentes(); cargarAgentes(); });
+    return b;
+  }
+
+  function pintarDetalleAgente(caja) {
+    caja.appendChild(botonCasa('‹ Todos los agentes', '', () => { A.abierto = null; pintarAgentes(); }));
+    const d = A.detalle;
+    if (A.detalleFalla) {
+      caja.appendChild(encabezadoCasa('', 'Esa sesión ya no está', 'Se cerró mientras la mirabas.'));
+      return;
+    }
+    if (!d) {
+      caja.appendChild(encabezadoCasa('', 'Leyendo la sesión…'));
+      return;
+    }
+    const trabajando = d.estado === 'trabajando';
+    caja.appendChild(encabezadoCasa(trabajando ? 'mal' : 'bien', d.nombre, `${d.proyecto} · ${trabajando ? 'trabajando desde' : 'libre desde'} ${d.hace}`));
+    if (d.titulo || d.pedido) {
+      caja.appendChild(elemento('p', 'casa-subtitulo', 'Lo último que le pidieron'));
+      caja.appendChild(elemento('p', 'agente-pedido', d.pedido || d.titulo));
+    }
+    caja.appendChild(elemento('p', 'casa-subtitulo', trabajando ? 'Lo que lleva dicho' : 'Lo que dejó'));
+    caja.appendChild(elemento('div', 'agente-resultado', d.resultado || (trabajando ? 'Sigue en eso: todavía no ha escrito nada que mostrar.' : 'No dejó ningún texto.')));
+    if (d.mensajes && d.mensajes.length > 1) {
+      const mas = elemento('details', 'agente-mas');
+      mas.append(elemento('summary', '', `Mensajes anteriores del turno (${d.mensajes.length - 1})`));
+      for (const m of d.mensajes.slice(0, -1)) mas.append(elemento('div', 'agente-resultado', m));
+      caja.appendChild(mas);
+    }
+  }
+
+  function pintarAgentes() {
+    const caja = $('#agentes-contenido');
+    caja.replaceChildren();
+    if (A.abierto) {
+      pintarDetalleAgente(caja);
+    } else if (A.falla) {
+      caja.appendChild(encabezadoCasa('mal', 'No llego a los agentes', textoDeFalla(A.falla)));
+    } else if (!A.lista) {
+      caja.appendChild(encabezadoCasa('', 'Preguntándole a la PC…'));
+    } else if (!A.lista.sesiones.length) {
+      caja.appendChild(encabezadoCasa('', 'No hay agentes abiertos', 'Cuando abras una sesión de Claude Code en la PC aparecerá aquí.'));
+    } else {
+      const n = A.lista.trabajando;
+      caja.appendChild(encabezadoCasa(n ? 'mal' : 'bien', n ? `${n} trabajando` : 'Todos libres', n ? 'Te aviso por el chat cuando termine cada uno.' : 'Ninguno está ocupado ahora.'));
+      const lista = elemento('div', 'agentes-lista');
+      for (const a of A.lista.sesiones) lista.appendChild(filaAgente(a));
+      caja.appendChild(lista);
+    }
+    if (A.leida && !A.abierto) caja.appendChild(elemento('p', 'casa-nota', `Leído a las ${hora(A.leida)}. Solo se miran: desde aquí no se les manda nada.`));
+  }
+
   // ---------------------------------------------------------------- luz y PC
   // Todo llega resuelto de Doof: aquí no se decide si hay luz ni se calcula nada, solo se pinta.
   async function refrescarSeccion() {
     const turno = ++S.turnoSeccion;
     const vista = S.vista;
-    if (vista !== 'luz' && vista !== 'pc') return;
-    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : cargarPc());
+    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes') return;
+    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'agentes' ? cargarAgentes() : cargarPc());
     if (turno !== S.turnoSeccion || S.vista !== vista) return;
-    await pausa(vista === 'luz' ? REFRESCO_LUZ_MS : REFRESCO_PC_MS);
+    await pausa(vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : REFRESCO_PC_MS);
     if (turno === S.turnoSeccion) refrescarSeccion();
   }
 

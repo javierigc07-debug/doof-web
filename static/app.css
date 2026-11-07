@@ -61,6 +61,7 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
     radial-gradient(120% 55% at 50% -12%, rgba(122, 107, 196, .18), transparent 62%),
     var(--fondo);
   overflow: hidden;
+  overflow: clip;       /* hidden todavía se desplaza por código: al enfocar un campo, el menú lateral oculto corría toda la app 14 px */
 }
 
 /* ---------------------------------------------------------------- barra */
@@ -870,3 +871,24 @@ body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor { display:
   background: var(--superficie); border-radius: 12px; }
 .agente-mas { margin-top: 14px; font-size: 13.5px; }
 .agente-mas summary { cursor: pointer; color: var(--muted); }
+
+/* ---------------------------------------------------------------- mini Doof */
+#pc-mini-doof { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--borde); }
+.mini-titulo { margin: 0 0 4px; font-size: 16px; font-weight: 650; }
+#pc-mini-doof .accion-casa { width: 100%; margin-top: 10px; }
+#pc-mini-doof .accion-casa.discreta { min-height: 44px; color: var(--tenue); background: transparent; }
+.mini-fila { display: flex; gap: 8px; margin-top: 12px; }
+.mini-fila input { flex: 1 1 auto; min-width: 0; min-height: 48px; padding: 8px 12px; font-size: 16px; color: inherit; background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; }
+#pc-mini-doof .mini-fila .accion-casa { flex: 0 0 auto; width: auto; margin-top: 0; }
+.mini-botones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+#pc-mini-doof .mini-botones .accion-casa { margin-top: 0; overflow-wrap: anywhere; }
+.mini-confirmar { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; border: 1px solid rgba(224, 106, 122, .45); border-radius: 14px; }
+.mini-confirmar p { grid-column: 1 / -1; margin: 0; font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+#pc-mini-doof .mini-confirmar .accion-casa { margin-top: 0; }
+.mini-respuesta { margin-top: 10px; padding: 10px 12px; background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; }
+.mini-respuesta b { display: block; font-size: 12.5px; font-weight: 600; color: var(--tenue); overflow-wrap: anywhere; }
+.mini-respuesta p { margin: 3px 0 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mini-respuesta.fallo p, .mini-error { color: #f0a3ae; }
+.mini-error { margin: 10px 0 0; font-size: 13.5px; }
+.banda button { margin-left: 10px; padding: 3px 10px; font: inherit; font-weight: 600; color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 999px; }
+.banda button[hidden] { display: none; }

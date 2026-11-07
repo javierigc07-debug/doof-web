@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Doof">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.trycloudflare.com https://api.github.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.trycloudflare.com https://api.github.com wss://broker.emqx.io:8084 wss://broker.hivemq.com:8884; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>Doof</title>
   <link rel="manifest" href="manifest.webmanifest">
@@ -52,7 +52,7 @@
     </button>
   </header>
 
-  <div id="banda" class="banda" hidden><span class="punto"></span><span id="banda-texto">PC sin conexión</span></div>
+  <div id="banda" class="banda" hidden><span class="punto"></span><span id="banda-texto">PC sin conexión</span><button id="banda-mini" type="button" hidden>Mini Doof</button></div>
 
   <main id="vistas">
 
@@ -123,6 +123,7 @@
       <div id="pc-datos" aria-live="polite"></div>
       <div id="pc-aprobacion"></div>
       <div id="pc-acciones"></div>
+      <div id="pc-mini-doof"></div>
     </section>
 
     <section id="vista-agentes" class="vista seccion-casa">
@@ -269,6 +270,7 @@
 <input type="file" id="archivo-galeria" accept="image/*" hidden>
 <input type="file" id="archivo-general" hidden>
 
+<script src="static/mini_doof.js" defer></script>
 <script src="static/app.js" defer></script>
 </body>
 </html>

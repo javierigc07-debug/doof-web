@@ -3,12 +3,13 @@
    servir de una copia vieja, y por ella viaja el token, y la app ya sabe mostrar "PC sin conexión" sola.
    El bloque de push queda listo para la fase 3 (avisos con la app cerrada). */
 
-const VERSION = 'doofapp-v9';
+const VERSION = 'doofapp-v11';
 const CASCARON = [
   './',
   'manifest.webmanifest',
   'static/app.css',
   'static/app.js',
+  'static/mini_doof.js',
   'static/iconos/ojo.svg',
   'static/iconos/icono-192.png',
   'static/iconos/icono-512.png',

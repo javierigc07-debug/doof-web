@@ -158,6 +158,35 @@
       <div id="agentes-contenido" aria-live="polite"></div>
     </section>
 
+    <section id="vista-agente-p" class="vista seccion-agente-p">
+      <div class="p-subcab">
+        <div class="p-subcab-info">
+          <span class="p-sombrero">🕵️</span>
+          <div>
+            <strong id="p-objetivo-actual">Agente P</strong>
+            <small id="p-estado-objetivo">Sin objetivo fijado</small>
+          </div>
+        </div>
+        <div class="p-subcab-acciones">
+          <button id="p-btn-nueva-cab" class="icono chico" title="Nueva investigación" aria-label="Nueva investigación">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button id="p-btn-historial-cab" class="icono chico" title="Historial" aria-label="Historial">
+            <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="p-mensajes" class="mensajes p-mensajes" aria-live="polite"></div>
+      <div class="p-panel">
+        <form id="p-form" class="caja-texto p-caja">
+          <input id="p-entrada" type="text" placeholder="Indica un perfil (ej. @usuario en TikTok)..." enterkeyhint="send" autocomplete="off" autocapitalize="sentences" spellcheck="false" aria-label="Escríbele al Agente P">
+          <button id="p-enviar" class="enviar p-enviar" type="submit" aria-label="Enviar" disabled>
+            <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </form>
+      </div>
+    </section>
+
   </main>
 
   <div id="compositor" class="compositor">
@@ -234,6 +263,10 @@
           <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg></span>
           <span class="fila-texto"><b>Agentes</b><small>Sesiones de Claude Code</small></span>
         </button>
+        <button class="fila fila-agente-p" data-destino="agente-p">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M12 2a5 5 0 0 1 5 5v3a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5zM4 14h16v3a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-3z"/></svg></span>
+          <span class="fila-texto"><b>Agente P</b><small>Inteligencia OSINT y expedientes</small></span>
+        </button>
       </div>
     </nav>
     <div class="menu-pie">
@@ -265,6 +298,23 @@
       <input id="buscar" type="search" placeholder="Buscar en el historial" autocomplete="off">
     </label>
     <div id="lista-historial" class="lista historial"></div>
+  </div>
+</aside>
+
+<aside id="hoja-historial-p" class="hoja" aria-hidden="true" aria-label="Historial Agente P">
+  <div class="hoja-caja">
+    <div class="asa"></div>
+    <div class="hoja-cab">
+      <h2>Investigaciones Agente P</h2>
+      <button class="icono chico cerrar" aria-label="Cerrar">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <button id="p-btn-nueva-hoja" class="nueva p-btn-nueva">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      Nueva investigación
+    </button>
+    <div id="p-lista-historial" class="lista historial"></div>
   </div>
 </aside>
 

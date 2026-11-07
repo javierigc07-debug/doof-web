@@ -82,7 +82,7 @@
   const ESPERA_ABRIR_MINI_MS = 15000;
   const CERRAR_MINI_AL_OCULTAR_MS = 5 * 60 * 1000;
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', agentes: 'Agentes', mini: 'Charlene' };
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -829,6 +829,7 @@
     $('#vista-pc').classList.toggle('activa', S.vista === 'pc');
     $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
     $('#vista-mini').classList.toggle('activa', S.vista === 'mini');
+    $('#vista-agente-p')?.classList.toggle('activa', S.vista === 'agente-p');
     $('#btn-atras').hidden = S.vista === 'inicio';
     $('#btn-nueva-barra').hidden = S.vista !== 'chat';
     $('#btn-historial').hidden = false;
@@ -959,6 +960,7 @@
     if (vista === 'luz') pintarLuz();
     else if (vista === 'agentes') pintarAgentes();
     else if (vista === 'mini') abrirMini();
+    else if (vista === 'agente-p') abrirAgenteP();
     else { pintarPc(); pintarAccesoMini(); }
     $('#vista-' + vista).scrollTop = 0;
     refrescarSeccion();
@@ -1554,6 +1556,238 @@
     campo.value = '';
     preguntarAMini('charla', texto, texto);
   }
+
+  
+  // ---------------------------------------------------------------- agente P
+  const P = {
+    convId: null,
+    conversaciones: [],
+    mensajes: [],
+    objetivo: '',
+    plataforma: 'tiktok',
+    cargando: false,
+  };
+
+  function nodoMensajeP(m) {
+    const esYo = (m.emisor === 'yo' || m.rol === 'usuario');
+    const d = elemento('div', 'mensaje ' + (esYo ? 'yo' : 'doof'));
+    const o = elemento('div', 'msg-origen');
+    o.textContent = esYo ? 'Tú' : 'Agente P';
+
+    const cuerpo = elemento('div', 'msg-cuerpo' + (m.fallo ? ' fallo' : ''));
+    cuerpo.textContent = m.texto || '';
+
+    if (m.esperando) {
+      const sp = elemento('span', 'p-esperando', ' ⏳');
+      cuerpo.append(sp);
+    }
+
+    d.append(o, cuerpo);
+
+    if (m.adjunto) {
+      const tarjeta = elemento('div', 'tarjeta-pdf-p');
+      const cab = elemento('div', 'tarjeta-pdf-cab');
+      cab.innerHTML = '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+
+      const meta = elemento('div', 'tarjeta-pdf-meta');
+      meta.append(
+        elemento('div', 'tarjeta-pdf-tit', m.adjunto.nombre || 'Expediente OSINT'),
+        elemento('div', 'tarjeta-pdf-sub', 'Objetivo: ' + (m.adjunto.objetivo || 'Perfil'))
+      );
+      cab.append(meta);
+      tarjeta.append(cab);
+
+      const acciones = elemento('div', 'tarjeta-pdf-acciones');
+      const enlacePdf = m.adjunto.pdf_url || m.adjunto.url;
+      if (enlacePdf) {
+        const aPdf = elemento('a', 'btn-pdf-descarga', '⬇️ Descargar PDF');
+        aPdf.href = (S.base || '') + enlacePdf;
+        aPdf.target = '_blank';
+        aPdf.download = m.adjunto.nombre || 'expediente.pdf';
+        acciones.append(aPdf);
+      }
+      if (m.adjunto.expediente_url) {
+        const aWeb = elemento('a', 'btn-pdf-ver', '🌐 Ver en navegador');
+        aWeb.href = (S.base || '') + m.adjunto.expediente_url;
+        aWeb.target = '_blank';
+        acciones.append(aWeb);
+      }
+      tarjeta.append(acciones);
+      d.append(tarjeta);
+    }
+
+    return d;
+  }
+
+  function pintarMensajesP() {
+    const caja = $('#p-mensajes');
+    if (!caja) return;
+    caja.textContent = '';
+
+    if (!P.mensajes.length) {
+      const saludo = {
+        emisor: 'agente_p',
+        texto: 'Agente P en línea. Indica un objetivo (ej. @usuario en TikTok) o haz una consulta sobre el perfil analizado.',
+      };
+      caja.append(nodoMensajeP(saludo));
+    } else {
+      P.mensajes.forEach(m => caja.append(nodoMensajeP(m)));
+    }
+
+    const objElem = $('#p-objetivo-actual');
+    const estElem = $('#p-estado-objetivo');
+    if (objElem) objElem.textContent = P.objetivo ? ('@' + P.objetivo) : 'Agente P';
+    if (estElem) estElem.textContent = P.objetivo ? `Objetivo activo (${P.plataforma})` : 'Sin objetivo fijado';
+
+    caja.scrollTop = caja.scrollHeight;
+  }
+
+  function pintarHistorialP() {
+    const lista = $('#p-lista-historial');
+    if (!lista) return;
+    lista.textContent = '';
+
+    if (!P.conversaciones.length) {
+      lista.append(elemento('p', 'vacio', 'No hay investigaciones previas.'));
+      return;
+    }
+
+    P.conversaciones.forEach(c => {
+      const item = elemento('div', 'item-historial-p' + (c.id === P.convId ? ' activo' : ''));
+      const tit = elemento('strong', '', c.objetivo ? `@${c.objetivo}` : (c.titulo || 'Investigación'));
+      const sub = elemento('small', '', `${(c.mensajes || []).length} mensajes · ${c.plataforma || 'tiktok'}`);
+      item.append(tit, elemento('br'), sub);
+      item.addEventListener('click', () => cargarDetalleP(c.id));
+      lista.append(item);
+    });
+  }
+
+  async function cargarConversacionesP() {
+    try {
+      const res = await api('/agente-p/conversaciones');
+      P.conversaciones = res.conversaciones || [];
+      pintarHistorialP();
+
+      if (!P.convId && P.conversaciones.length > 0) {
+        await cargarDetalleP(P.conversaciones[0].id);
+      } else if (!P.convId) {
+        await crearNuevaConversacionP();
+      }
+    } catch (e) {
+      avisar('Error al cargar Agente P: ' + e.message);
+    }
+  }
+
+  async function cargarDetalleP(convId) {
+    try {
+      const res = await api('/agente-p/conversaciones/' + convId);
+      const conv = res.conversacion;
+      P.convId = conv.id;
+      P.mensajes = conv.mensajes || [];
+      P.objetivo = conv.objetivo || '';
+      P.plataforma = conv.plataforma || 'tiktok';
+      pintarMensajesP();
+      pintarHistorialP();
+      cerrarHojas();
+    } catch (e) {
+      avisar('Error al abrir investigación: ' + e.message);
+    }
+  }
+
+  async function crearNuevaConversacionP() {
+    try {
+      const res = await api('/agente-p/conversaciones/nueva', { method: 'POST' });
+      const conv = res.conversacion;
+      P.convId = conv.id;
+      P.mensajes = [];
+      P.objetivo = '';
+      P.plataforma = 'tiktok';
+      P.conversaciones.unshift(conv);
+      pintarMensajesP();
+      pintarHistorialP();
+      cerrarHojas();
+    } catch (e) {
+      avisar('Error al crear investigación: ' + e.message);
+    }
+  }
+
+  async function enviarMensajeP(e) {
+    if (e) e.preventDefault();
+    const campo = $('#p-entrada');
+    const texto = campo.value.trim();
+    if (!texto || P.cargando) return;
+
+    campo.value = '';
+    const btnEnviar = $('#p-enviar');
+    if (btnEnviar) btnEnviar.disabled = true;
+
+    // Agregar mensaje del usuario a la vista
+    P.mensajes.push({ emisor: 'yo', texto });
+    const msgEsperando = { emisor: 'agente_p', texto: 'Investigando perfil...', esperando: true };
+    P.mensajes.push(msgEsperando);
+    P.cargando = true;
+    pintarMensajesP();
+
+    try {
+      const res = await api('/agente-p/mensaje', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conv_id: P.convId, texto }),
+      }, 180000);
+
+      // Quitar placeholder de espera
+      const idxEsp = P.mensajes.indexOf(msgEsperando);
+      if (idxEsp !== -1) P.mensajes.splice(idxEsp, 1);
+
+      if (res.objetivo) P.objetivo = res.objetivo;
+      if (res.plataforma) P.plataforma = res.plataforma;
+
+      if (res.mensaje) {
+        P.mensajes.push(res.mensaje);
+      }
+      await cargarConversacionesP();
+    } catch (err) {
+      const idxEsp = P.mensajes.indexOf(msgEsperando);
+      if (idxEsp !== -1) P.mensajes.splice(idxEsp, 1);
+      P.mensajes.push({
+        emisor: 'agente_p',
+        texto: 'Error de Agente P: ' + (err.message || 'operación fallida'),
+        fallo: true,
+      });
+    } finally {
+      P.cargando = false;
+      if (btnEnviar) btnEnviar.disabled = !$('#p-entrada').value.trim();
+      pintarMensajesP();
+    }
+  }
+
+  async function abrirAgenteP() {
+    pintarMensajesP();
+    await cargarConversacionesP();
+  }
+
+  function iniciarAgenteP() {
+    const form = $('#p-form');
+    if (form) form.addEventListener('submit', enviarMensajeP);
+
+    const entrada = $('#p-entrada');
+    if (entrada) {
+      entrada.addEventListener('input', () => {
+        const btn = $('#p-enviar');
+        if (btn) btn.disabled = P.cargando || !entrada.value.trim();
+      });
+    }
+
+    const btnNuevaCab = $('#p-btn-nueva-cab');
+    if (btnNuevaCab) btnNuevaCab.addEventListener('click', crearNuevaConversacionP);
+
+    const btnNuevaHoja = $('#p-btn-nueva-hoja');
+    if (btnNuevaHoja) btnNuevaHoja.addEventListener('click', crearNuevaConversacionP);
+
+    const btnHistorialCab = $('#p-btn-historial-cab');
+    if (btnHistorialCab) btnHistorialCab.addEventListener('click', () => abrirHoja('hoja-historial-p'));
+  }
+
 
   function iniciarMini() {
     $('#mini-form').addEventListener('submit', enviarAMini);
@@ -2424,6 +2658,7 @@
     });
 
     iniciarMini();
+    iniciarAgenteP();
     document.addEventListener('visibilitychange', () => {
       alCambiarVisibilidadMini();
       if (document.hidden) return;

@@ -68,12 +68,12 @@
   const TIPO_APAGAR = 'apagar_pc';
   const TIPO_PAGO = 'pago_movil';
   const TIPO_LLAVE = 'mini_doof_llave';
-  const LARGO_MINIMO_PIN = 6;
-  const MAX_TEXTO_CHARLA = 300;
-  const MAX_RESPUESTAS_MINI = 8;
+  const MAX_TEXTO_MINI = 200;     // la Pi recorta lo que pase de ahí sin avisar
+  const MAX_MENSAJES_MINI = 30;
+  const ESPERA_ABRIR_MINI_MS = 15000;
   const CERRAR_MINI_AL_OCULTAR_MS = 5 * 60 * 1000;
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', agentes: 'Agentes' };
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', agentes: 'Agentes', mini: 'Mini Doof' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -401,9 +401,6 @@
   }
 
   async function confirmarConHuella(aprobacion, boton) {
-    // Se lee ahora: repintar la tarjeta mientras se pone la huella borraría el campo, y sin PIN no hay cómo guardar la llave que va a llegar.
-    const pinNuevo = aprobacion.tipo === TIPO_LLAVE ? pinDeLaTarjeta() : null;
-    if (aprobacion.tipo === TIPO_LLAVE && !pinNuevo) return;
     boton.disabled = true;
     try {
       const o = await postJson(`/aprobaciones/${aprobacion.id}/opciones`);
@@ -429,10 +426,11 @@
         ponerCuentaApagado(resultado.apagado_faltan_seg || 0);
         pintarPc();
       } else if (aprobacion.tipo === TIPO_LLAVE) {
-        await window.MiniDoof.sellar(resultado.clave, pinNuevo);
-        mini.abierto = true;
+        await window.MiniDoof.instalar(resultado.clave);
+        await cargarAprobaciones();
         avisar('Llave instalada. Ya sirve con la PC apagada.');
-        pintarMiniDoof();
+        await irASeccion('mini');
+        return;
       } else {
         S.esperando = true;
         S.desde = Date.now();
@@ -600,35 +598,10 @@
     titulo.textContent = 'Instalar la llave de mini Doof';
     const cuerpo = document.createElement('p');
     cuerpo.className = 'cuerpo';
-    cuerpo.textContent = `Queda en este teléfono, cifrada con un PIN de al menos ${LARGO_MINIMO_PIN} dígitos. Con la llave y el PIN se puede encender la PC. Si olvidas el PIN, se instala de nuevo.`;
+    cuerpo.textContent = 'Queda guardada en este teléfono y sirve con la PC apagada. Quien tenga el teléfono desbloqueado podrá encender la PC con ella.';
     caja.append(titulo, cuerpo);
-    if (S.huellaRegistrada && huellaDisponible()) {
-      for (const [id, texto] of [['pin-llave', 'PIN nuevo'], ['pin-llave-2', 'Repite el PIN']]) {
-        const campo = document.createElement('input');
-        campo.id = id;
-        campo.type = 'password';
-        campo.inputMode = 'numeric';
-        campo.autocomplete = 'new-password';
-        campo.placeholder = texto;
-        campo.setAttribute('aria-label', texto);
-        caja.append(campo);
-      }
-    }
     ponerAccionesDeHuella(caja, aprobacion, 'Instalar con huella', 'Para instalarla, primero activa la huella en este teléfono.');
     return caja;
-  }
-
-  function pinDeLaTarjeta() {
-    const pin = $('#pin-llave')?.value || '';
-    if (!new RegExp(`^\\d{${LARGO_MINIMO_PIN},}$`).test(pin)) {
-      avisar(`El PIN debe tener al menos ${LARGO_MINIMO_PIN} dígitos.`);
-      return null;
-    }
-    if (pin !== $('#pin-llave-2')?.value) {
-      avisar('Los dos PIN no coinciden.');
-      return null;
-    }
-    return pin;
   }
 
   function ponerAccionesDeHuella(caja, aprobacion, textoPrincipal, textoSinHuella) {
@@ -667,7 +640,6 @@
     const caja = $('#aprobaciones');
     const cajaPc = $('#pc-aprobacion');
     const escrito = $('#codigo-huella')?.value;
-    const pinesEscritos = [$('#pin-llave')?.value, $('#pin-llave-2')?.value];
     const delChat = S.aprobaciones.filter((a) => !esDeLaSeccionPc(a));
     caja.textContent = '';
     cajaPc.textContent = '';
@@ -675,8 +647,7 @@
     S.aprobaciones.filter((a) => a.tipo === TIPO_APAGAR).slice(0, 1).forEach((a) => cajaPc.appendChild(tarjetaApagado(a)));
     S.aprobaciones.filter((a) => a.tipo === TIPO_LLAVE).slice(0, 1).forEach((a) => cajaPc.appendChild(tarjetaLlave(a)));
     if (escrito && $('#codigo-huella')) $('#codigo-huella').value = escrito;
-    if (pinesEscritos[0] && $('#pin-llave')) $('#pin-llave').value = pinesEscritos[0];
-    if (pinesEscritos[1] && $('#pin-llave-2')) $('#pin-llave-2').value = pinesEscritos[1];
+    if (S.vista === 'pc') pintarAccesoMini();
     caja.hidden = !delChat.length;
     document.body.classList.toggle('con-aprobacion', delChat.length > 0);     // el aviso flotante no debe tapar sus botones; la de apagar no está abajo
     if (S.vista === 'pc') pintarAccionesPc();
@@ -765,12 +736,12 @@
     pill.className = 'pastilla-estado ' + clase;
     pill.querySelector('span').textContent = texto;
 
-    $('#barra-sub').textContent = S.soloLectura ? 'solo lectura' : texto;
+    $('#barra-sub').textContent = S.vista === 'mini' ? textoConexionMini() : S.soloLectura ? 'solo lectura' : texto;
 
     const mostrar = (S.conectado === false || S.salud === false) && !S.soloLectura;
     $('#banda').hidden = !mostrar;
     if (mostrar) $('#banda-texto').textContent = 'PC sin conexión · reintentando…';
-    $('#banda-mini').hidden = S.vista === 'pc';
+    $('#banda-mini').hidden = S.vista === 'mini';
     alCambiarConexionMini();
   }
 
@@ -781,6 +752,7 @@
     $('#vista-luz').classList.toggle('activa', S.vista === 'luz');
     $('#vista-pc').classList.toggle('activa', S.vista === 'pc');
     $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
+    $('#vista-mini').classList.toggle('activa', S.vista === 'mini');
     $('#btn-atras').hidden = S.vista === 'inicio';
     $('#btn-nueva-barra').hidden = S.vista !== 'chat';
     $('#btn-historial').hidden = false;
@@ -821,7 +793,8 @@
     pintarAprobaciones();
     if (vista === 'luz') pintarLuz();
     else if (vista === 'agentes') pintarAgentes();
-    else { pintarPc(); pintarMiniDoof(); }
+    else if (vista === 'mini') abrirMini();
+    else { pintarPc(); pintarAccesoMini(); }
     $('#vista-' + vista).scrollTop = 0;
     refrescarSeccion();
   }
@@ -1159,198 +1132,262 @@
   }
 
   // ---------------------------------------------------------------- mini Doof
-  // Vive en la Raspberry y contesta aunque la PC esté apagada: nada de aquí pasa por el puente, salvo instalar la llave. Lo que dice la Pi se pinta con
-  // textContent y sin ponerlo en duda ni darlo por dato: el menú lo decide ella, y la charla es un modelo que puede inventar.
-  const mini = { abierto: false, menu: null, respuestas: [], ocupado: false, confirmando: null, error: '', sinPc: false, reloj: null };
+  // Vive en la Raspberry y contesta aunque la PC esté apagada: nada de aquí pasa por el puente, salvo instalar la llave. Lo que dice la Pi se pinta con textContent.
+  // Los botones los decide ella: aquí solo se ordenan por tema, y un id que no esté en esta lista cae en el último grupo, así que uno nuevo aparece solo.
+  const GRUPOS_MINI = [
+    ['PC', ['estado_pc', 'encender']],
+    ['Casa', ['luz', 'autonomia', 'cortes']],
+    ['Agenda', ['horario', 'notas']],
+    ['Mini Doof', ['estado_doof', 'reinicios', 'modo_seguro', 'modo_normal']],
+  ];
+  const CLAVE_MENU_MINI = 'mini_doof_menu';
+  const MINI_NO_RESPONDE = 'No me llega nada de la Raspberry. Se reinicia cada vez que cambia entre baterías y calle: prueba otra vez en un par de minutos.';
+  const SALUDO_MINI = 'Soy mini Doof. Vivo en la Raspberry, así que contesto aunque la PC esté apagada. Los botones leen datos reales; si me escribes, respondo con lo que sé y puedo equivocarme.';
+  const TEXTO_CONEXION_MINI = { buscando: 'Buscando la Raspberry…', lista: 'Raspberry en línea', caida: 'La Raspberry no responde' };
+
+  function menuGuardadoMini() {
+    try { return JSON.parse(localStorage.getItem(CLAVE_MENU_MINI)) || null; } catch (e) { return null; }
+  }
+
+  const mini = { mensajes: [], menu: menuGuardadoMini(), menuAlDia: false, grupo: 'PC', ocupado: false, confirmando: null, conexion: '', sinPc: false, relojAbrir: null, relojOcultar: null };
 
   const pcCaida = () => S.conectado === false || !!S.pcFalla;
+  const textoConexionMini = () => TEXTO_CONEXION_MINI[mini.conexion] || '';
 
-  // Se abre sola al perder la PC, y solo repinta si eso cambió: repintar a cada rato borraría el PIN a medio escribir.
   function alCambiarConexionMini() {
     const caida = pcCaida();
     if (caida === mini.sinPc) return;
     mini.sinPc = caida;
-    if (caida) mini.abierto = true;
-    if (S.vista === 'pc') pintarMiniDoof();
-  }
-
-  function cerrarMini() {
-    window.MiniDoof.cerrar();
-    Object.assign(mini, { menu: null, respuestas: [], ocupado: false, confirmando: null, error: '' });
-    pintarMiniDoof();
+    clearTimeout(mini.relojAbrir);
+    if (caida) {
+      mini.grupo = 'PC';
+      // Con margen: un corte de segundos del túnel no debe sacar a nadie de la sección PC.
+      mini.relojAbrir = setTimeout(() => {
+        if (pcCaida() && S.vista === 'pc' && window.MiniDoof.instalada()) irASeccion('mini');
+      }, ESPERA_ABRIR_MINI_MS);
+    }
+    if (S.vista === 'pc') pintarAccesoMini();
+    if (S.vista === 'mini') pintarAccionesMini();
   }
 
   async function pedirLlaveMini(boton) {
     boton.disabled = true;
     try {
       await postJson('/mini-doof/pedir-llave');
+      await irASeccion('pc');
       await cargarAprobaciones();
-      $('#vista-pc').scrollTop = 0;
+      pintarAccesoMini();
     } catch (e) {
       boton.disabled = false;
       avisar(e.status === 404 ? 'Falta reiniciar Doof en la PC.' : 'No pude pedirla: ' + e.message);
     }
   }
 
-  async function abrirMini(pin) {
-    mini.error = '';
-    mini.ocupado = true;
-    pintarMiniDoof();
+  // ---- en la sección PC: solo el acceso
+  function pintarAccesoMini() {
+    const caja = $('#pc-mini-doof');
+    caja.textContent = '';
+    caja.append(elemento('h3', 'mini-titulo', 'Mini Doof'));
+    const pedida = S.aprobaciones.some((a) => a.tipo === TIPO_LLAVE);
+    if (window.MiniDoof.instalada()) {
+      caja.append(elemento('p', 'casa-nota', 'Contesta y puede encender la PC aunque esté apagada.'));
+      caja.append(botonCasa('Abrir mini Doof', '', () => irASeccion('mini')));
+      if (!pcCaida() && !pedida) caja.append(botonCasa('Instalar la llave de nuevo', 'discreta', pedirLlaveMini));
+    } else if (pcCaida()) {
+      caja.append(elemento('p', 'casa-nota', 'Este teléfono no tiene su llave, y solo se instala con la PC encendida.'));
+    } else {
+      caja.append(elemento('p', 'casa-nota', 'Contesta y puede encender la PC aunque esté apagada. Instala su llave ahora: con la PC apagada ya no se puede.'));
+      if (!pedida) caja.append(botonCasa('Instalar la llave', '', pedirLlaveMini));
+    }
+  }
+
+  // ---- su pantalla
+  async function abrirMini() {
+    pintarMini();
+    if (!window.MiniDoof.instalada()) return;
     try {
-      await window.MiniDoof.abrir(pin);
+      if (!window.MiniDoof.abierta()) await window.MiniDoof.abrir();
     } catch (e) {
-      mini.ocupado = false;
-      mini.error = e.message;
-      pintarMiniDoof();
+      avisar(e.message);
+      pintarMini();
       return;
     }
-    mini.ocupado = false;
-    await cargarMenuMini();
+    if (!mini.menuAlDia) cargarMenuMini();
+  }
+
+  function ponerConexionMini(estado) {
+    mini.conexion = estado;
+    actualizarEstado();
   }
 
   async function cargarMenuMini() {
-    mini.ocupado = true;
-    mini.error = '';
-    pintarMiniDoof();
+    ponerConexionMini('buscando');
+    pintarAccionesMini();
     try {
       mini.menu = (await window.MiniDoof.pedir('menu')).botones || [];
+      mini.menuAlDia = true;
+      try { localStorage.setItem(CLAVE_MENU_MINI, JSON.stringify(mini.menu)); } catch (e) { /* solo adelanta los botones */ }
+      ponerConexionMini('lista');
     } catch (e) {
-      mini.error = e.message;
+      ponerConexionMini('caida');
     }
-    mini.ocupado = false;
-    pintarMiniDoof();
+    pintarAccionesMini();
   }
 
-  function anotarRespuestaMini(respuesta) {
-    mini.respuestas.push(respuesta);
-    mini.respuestas = mini.respuestas.slice(-MAX_RESPUESTAS_MINI);
-  }
-
-  async function pedirAMini(accion, titulo, texto) {
-    const respuesta = { titulo, texto: '', esperando: true };
-    anotarRespuestaMini(respuesta);
+  async function preguntarAMini(accion, titulo, texto) {
+    const respuesta = { rol: 'bot', texto: '', esperando: true };
+    mini.mensajes.push({ rol: 'usuario', texto: titulo }, respuesta);
+    mini.mensajes = mini.mensajes.slice(-MAX_MENSAJES_MINI);
     mini.ocupado = true;
     mini.confirmando = null;
-    pintarMiniDoof();
+    pintarMini();
     try {
       const final = await window.MiniDoof.pedir(accion, {
         texto,
-        alParcial: (m) => { respuesta.texto = m.texto || ''; pintarMiniDoof(); },
+        alParcial: (m) => { respuesta.texto = m.texto || ''; pintarMensajesMini(); },
       });
-      respuesta.texto = final.texto || '';
+      // La Pi le agrega a cada respuesta "💭 Charla libre: puedo inventar cosas...". Javier no la quiere en cada mensaje (6 nov 2026): el saludo ya lo dice una vez.
+      respuesta.texto = (final.texto || '').replace(/^\s*💭.*$/gmu, '').trim();
+      ponerConexionMini('lista');
     } catch (e) {
-      respuesta.texto = e.message;
+      respuesta.texto = MINI_NO_RESPONDE;
       respuesta.fallo = true;
+      ponerConexionMini('caida');
     }
     respuesta.esperando = false;
     mini.ocupado = false;
-    pintarMiniDoof();
+    pintarMini();
   }
 
-  function formularioPinMini(caja) {
-    const forma = document.createElement('form');
-    forma.className = 'mini-fila';
-    const campo = document.createElement('input');
-    campo.id = 'pin-mini';
-    campo.type = 'password';
-    campo.inputMode = 'numeric';
-    campo.autocomplete = 'off';
-    campo.placeholder = 'Tu PIN';
-    campo.setAttribute('aria-label', 'PIN de mini Doof');
-    const abrir = botonCasa(mini.ocupado ? 'Abriendo…' : 'Abrir');
-    abrir.type = 'submit';
-    abrir.disabled = mini.ocupado;
-    forma.append(campo, abrir);
-    forma.addEventListener('submit', (e) => {
-      e.preventDefault();
-      if (campo.value && !mini.ocupado) abrirMini(campo.value);
-    });
-    caja.append(forma);
-  }
-
-  function botonesMini(caja) {
-    const rejilla = elemento('div', 'mini-botones');
-    for (const { id, titulo } of mini.menu) {
-      if (mini.confirmando === id) {
-        const fila = elemento('div', 'mini-confirmar');
-        fila.append(elemento('p', '', `¿Seguro? ${titulo}`));
-        fila.append(botonCasa('Sí', 'peligro', () => pedirAMini(id, titulo)));
-        fila.append(botonCasa('No', '', () => { mini.confirmando = null; pintarMiniDoof(); }));
-        rejilla.append(fila);
-        continue;
-      }
-      const boton = botonCasa(titulo, MINI_CON_CONFIRMACION.has(id) ? 'peligro' : '', () => {
-        if (MINI_CON_CONFIRMACION.has(id)) { mini.confirmando = id; pintarMiniDoof(); } else pedirAMini(id, titulo);
-      });
-      boton.disabled = mini.ocupado;
-      rejilla.append(boton);
+  function nodoMensajeMini(m) {
+    if (m.rol === 'usuario') return elemento('div', 'msg usuario', m.texto);
+    const d = elemento('div', m.esperando ? 'msg pensando' : 'msg bot');
+    const o = ojo('chico');
+    if (m.esperando) {
+      o.classList.add('pensando');
+      const t = elemento('div', 'pensando-texto');
+      t.append(elemento('span', '', m.texto || 'Preguntándole a la Raspberry'));
+      const puntos = elemento('span', 'puntos');
+      puntos.innerHTML = '<i></i><i></i><i></i>';
+      t.append(puntos);
+      d.append(o, t);
+      return d;
     }
-    caja.append(rejilla);
+    d.append(o, elemento('div', 'msg-cuerpo' + (m.fallo ? ' fallo' : ''), m.texto));
+    return d;
   }
 
-  function respuestasMini(caja) {
-    for (const r of mini.respuestas) {
-      const fila = elemento('div', 'mini-respuesta' + (r.fallo ? ' fallo' : ''));
-      fila.append(elemento('b', '', r.titulo));
-      fila.append(elemento('p', '', r.texto || (r.esperando ? 'Esperando a la Raspberry…' : '')));
-      caja.append(fila);
-    }
-  }
-
-  function charlaMini(caja) {
-    const forma = document.createElement('form');
-    forma.className = 'mini-fila';
-    const campo = document.createElement('input');
-    campo.id = 'charla-mini';
-    campo.maxLength = MAX_TEXTO_CHARLA;
-    campo.autocomplete = 'off';
-    campo.placeholder = 'Charla libre…';
-    campo.setAttribute('aria-label', 'Charla libre con mini Doof');
-    const enviar = botonCasa('Enviar');
-    enviar.type = 'submit';
-    enviar.disabled = mini.ocupado;
-    forma.append(campo, enviar);
-    forma.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const texto = campo.value.trim();
-      if (!texto || mini.ocupado) return;
-      campo.value = '';     // pintarMiniDoof conserva lo escrito: sin esto volvería a aparecer lo ya enviado
-      pedirAMini('charla', texto, texto);
-    });
-    caja.append(forma, elemento('p', 'casa-nota', 'La charla no hace nada en la casa, pero puede inventar: lo que diga no es un dato. Puede tardar minutos.'));
-  }
-
-  function pintarMiniDoof() {
-    const caja = $('#pc-mini-doof');
-    const escrito = $('#charla-mini')?.value;
+  function pintarMensajesMini() {
+    const caja = $('#mini-mensajes');
     caja.textContent = '';
-    const sinPc = pcCaida();
-    caja.append(elemento('h3', 'mini-titulo', 'Mini Doof'));
+    if (window.MiniDoof.instalada()) caja.append(nodoMensajeMini({ rol: 'bot', texto: SALUDO_MINI }));
+    else caja.append(nodoMensajeMini({ rol: 'bot', texto: pcCaida()
+      ? 'Soy mini Doof y vivo en la Raspberry, pero este teléfono todavía no tiene mi llave. Se instala con la PC encendida.'
+      : 'Soy mini Doof y vivo en la Raspberry: contesto aunque la PC esté apagada. Para eso, este teléfono necesita mi llave. Se instala una vez, con tu huella.' }));
+    mini.mensajes.forEach((m) => caja.append(nodoMensajeMini(m)));
+    caja.scrollTop = caja.scrollHeight;
+  }
+
+  function idsDelGrupoMini(nombre) {
+    const conocidos = GRUPOS_MINI.flatMap(([, ids]) => ids);
+    const [ultimo] = GRUPOS_MINI[GRUPOS_MINI.length - 1];
+    return (mini.menu || []).filter(({ id }) => {
+      const grupo = GRUPOS_MINI.find(([, ids]) => ids.includes(id));
+      return grupo ? grupo[0] === nombre : nombre === ultimo && !conocidos.includes(id);
+    });
+  }
+
+  function botonAccionMini(boton) {
+    const destacado = boton.id === 'encender' && pcCaida();
+    const b = elemento('button', 'mini-accion' + (destacado ? ' destacada' : ''), boton.titulo);
+    b.type = 'button';
+    b.disabled = mini.ocupado;
+    b.addEventListener('click', () => {
+      if (!MINI_CON_CONFIRMACION.has(boton.id)) { preguntarAMini(boton.id, boton.titulo); return; }
+      mini.confirmando = boton;
+      pintarAccionesMini();
+    });
+    return b;
+  }
+
+  function pintarAccionesMini() {
+    const caja = $('#mini-acciones');
+    const formulario = $('#mini-form');
+    caja.textContent = '';
+    formulario.hidden = !window.MiniDoof.instalada();
+    $('#mini-enviar').disabled = mini.ocupado || !$('#mini-entrada').value.trim();
     if (!window.MiniDoof.instalada()) {
-      caja.append(elemento('p', 'casa-nota', sinPc
-        ? 'Vive en la Raspberry y contesta aunque la PC esté apagada, pero este teléfono no tiene su llave. Se instala con la PC encendida.'
-        : 'Vive en la Raspberry y contesta aunque la PC esté apagada. Instala su llave ahora: con la PC apagada ya no se puede.'));
-      if (!sinPc && !S.aprobaciones.some((a) => a.tipo === TIPO_LLAVE)) caja.append(botonCasa('Instalar la llave', '', pedirLlaveMini));
+      if (!pcCaida()) caja.append(botonCasa('Instalar la llave', '', pedirLlaveMini));
       return;
     }
-    if (!window.MiniDoof.abierta()) {
-      if (!mini.abierto) {
-        caja.append(elemento('p', 'casa-nota', 'Vive en la Raspberry y contesta aunque la PC esté apagada.'));
-        caja.append(botonCasa('Hablar con mini Doof', '', () => { mini.abierto = true; pintarMiniDoof(); }));
-        return;
-      }
-      if (sinPc) caja.append(elemento('p', 'casa-nota', 'No hay conexión con la PC, pero la Raspberry puede contestar. Pon tu PIN.'));
-      formularioPinMini(caja);
-    } else {
-      if (mini.menu) botonesMini(caja);
-      else if (mini.ocupado) caja.append(elemento('p', 'casa-nota', 'Preguntándole a la Raspberry…'));
-      respuestasMini(caja);
-      if (mini.menu) charlaMini(caja);
-      else if (!mini.ocupado) caja.append(botonCasa('Reintentar', '', cargarMenuMini));
-      caja.append(botonCasa('Cerrar mini Doof', 'discreta', cerrarMini));
+    if (mini.confirmando) {
+      const { id, titulo } = mini.confirmando;
+      const tarjeta = elemento('div', 'mini-confirmar');
+      tarjeta.append(elemento('p', '', `¿${titulo}?`));
+      if (id === 'encender') tarjeta.append(elemento('small', '', 'La Raspberry manda la señal, pero no confirma que haya arrancado.'));
+      const si = botonCasa(`Sí, ${titulo.charAt(0).toLowerCase()}${titulo.slice(1)}`, 'principal', () => preguntarAMini(id, titulo));
+      const no = botonCasa('No', '', () => { mini.confirmando = null; pintarAccionesMini(); });
+      tarjeta.append(si, no);
+      caja.append(tarjeta);
+      return;
     }
-    if (mini.error) caja.append(elemento('p', 'mini-error', mini.error));
-    if (escrito && $('#charla-mini')) $('#charla-mini').value = escrito;
+    if (!mini.menu) {
+      if (mini.conexion === 'caida') caja.append(botonCasa('Reintentar', '', cargarMenuMini));
+      return;
+    }
+    const grupos = GRUPOS_MINI.map(([nombre]) => nombre).filter((nombre) => idsDelGrupoMini(nombre).length);
+    if (!grupos.includes(mini.grupo)) mini.grupo = grupos[0];
+    const pestanas = elemento('div', 'mini-pestanas');
+    pestanas.setAttribute('role', 'tablist');
+    for (const nombre of grupos) {
+      const p = elemento('button', 'mini-pestana', nombre);
+      p.type = 'button';
+      p.setAttribute('role', 'tab');
+      p.setAttribute('aria-selected', String(nombre === mini.grupo));
+      p.addEventListener('click', () => { mini.grupo = nombre; pintarAccionesMini(); });
+      pestanas.append(p);
+    }
+    const acciones = elemento('div', 'mini-grupo');
+    acciones.setAttribute('role', 'tabpanel');
+    const delGrupo = idsDelGrupoMini(mini.grupo);
+    // Con la PC caída, encender es a lo que se viene: va primero.
+    delGrupo.sort((a, b) => (pcCaida() ? (b.id === 'encender') - (a.id === 'encender') : 0));
+    delGrupo.forEach((boton) => acciones.append(botonAccionMini(boton)));
+    caja.append(pestanas, acciones);
+  }
+
+  function pintarMini() {
+    pintarMensajesMini();
+    pintarAccionesMini();
+  }
+
+  function enviarAMini(e) {
+    e.preventDefault();
+    const campo = $('#mini-entrada');
+    const texto = campo.value.trim();
+    if (!texto || mini.ocupado) return;
+    campo.value = '';
+    preguntarAMini('charla', texto, texto);
+  }
+
+  function iniciarMini() {
+    $('#mini-form').addEventListener('submit', enviarAMini);
+    $('#mini-entrada').addEventListener('input', () => {
+      $('#mini-enviar').disabled = mini.ocupado || !$('#mini-entrada').value.trim();
+    });
+    $('#mini-entrada').maxLength = MAX_TEXTO_MINI;
+    $('#banda-mini').addEventListener('click', () => irASeccion('mini'));
+  }
+
+  // Sin esto, los WebSocket quedarían gastando batería con la app en segundo plano. La llave sigue guardada: al volver se reconecta sola.
+  function alCambiarVisibilidadMini() {
+    clearTimeout(mini.relojOcultar);
+    if (document.hidden) {
+      mini.relojOcultar = setTimeout(() => { window.MiniDoof.cerrar(); mini.conexion = ''; }, CERRAR_MINI_AL_OCULTAR_MS);
+    } else if (S.vista === 'mini' && !window.MiniDoof.abierta()) {
+      mini.menuAlDia = false;
+      abrirMini();
+    }
   }
 
   // ---------------------------------------------------------------- inicio
@@ -2060,11 +2097,10 @@
       if (archivo) { e.preventDefault(); prepararAdjunto(archivo); }
     });
 
-    $('#banda-mini').addEventListener('click', () => { mini.abierto = true; irASeccion('pc'); });
+    iniciarMini();
     document.addEventListener('visibilitychange', () => {
-      clearTimeout(mini.reloj);
-      // Un teléfono abandonado con la app abierta no debe quedar con la llave lista para encender la PC.
-      if (document.hidden) { mini.reloj = setTimeout(cerrarMini, CERRAR_MINI_AL_OCULTAR_MS); return; }
+      alCambiarVisibilidadMini();
+      if (document.hidden) return;
       revisarAlVolver();
       refrescarSeccion();
     });

@@ -873,22 +873,43 @@ body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor { display:
 .agente-mas summary { cursor: pointer; color: var(--muted); }
 
 /* ---------------------------------------------------------------- mini Doof */
+/* El ámbar es lo que lo separa del Doof grande, y solo se usa en lo que importa: su ojo, la pestaña elegida, encender y enviar. */
+body[data-vista="mini"] #compositor { display: none; }
+body[data-vista="mini"] .ojo { color: var(--ambar); }
+#vista-mini { display: flex; flex-direction: column; overflow: hidden; }
+#vista-mini .mensajes { flex: 1 1 auto; }
+#vista-mini .msg-cuerpo { text-wrap: pretty; }
+#vista-mini .msg-cuerpo.fallo { color: #f0a3ae; }
+.mini-panel { flex: 0 0 auto; padding: 0 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--borde-suave); background: var(--fondo); }
+.mini-panel .caja-texto { margin-top: 10px; align-items: center; box-shadow: none; }
+.mini-panel .caja-texto:focus-within { border-color: rgba(224, 178, 106, .6); box-shadow: 0 0 0 3px rgba(224, 178, 106, .12); }
+#mini-form[hidden] { display: none; }
+#mini-entrada { flex: 1; min-width: 0; padding: 10px 8px 10px 12px; font-size: 16px; color: var(--texto); background: transparent; border: 0; outline: none; }
+#mini-entrada::placeholder { color: var(--tenue); }
+#mini-enviar:not(:disabled) { background: var(--ambar); box-shadow: 0 4px 18px rgba(224, 178, 106, .28); }
+
+.mini-pestanas { display: flex; border-bottom: 1px solid var(--borde-suave); }
+.mini-pestana { flex: 1 1 0; min-width: 0; min-height: 46px; padding: 0 4px; font-size: 13.5px; font-weight: 550; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .15s, border-color .15s; }
+.mini-pestana[aria-selected="true"] { color: var(--texto); border-bottom-color: var(--ambar); }
+.mini-grupo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 10px; }
+.mini-accion { min-height: 46px; padding: 8px 12px; font-size: 13.5px; line-height: 1.25; color: var(--texto); text-align: left; background: var(--superficie); border: 1px solid var(--borde-suave); border-radius: 10px; overflow-wrap: anywhere; transition: background .15s, border-color .15s, transform .12s; }
+.mini-accion:active:not(:disabled) { background: var(--superficie-2); border-color: var(--borde); transform: scale(.98); }
+.mini-accion:disabled { color: var(--tenue); }
+.mini-accion.destacada { font-weight: 650; color: #1d1405; background: var(--ambar); border-color: var(--ambar); }
+.mini-accion.destacada:active:not(:disabled) { background: var(--ambar); border-color: var(--ambar); }
+.mini-accion.destacada:disabled { color: #1d1405; opacity: .55; }
+.mini-pestana:focus-visible, .mini-accion:focus-visible { outline: 2px solid var(--ambar); outline-offset: 2px; }
+
+.mini-confirmar { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; padding: 14px; background: var(--superficie-2); border: 1px solid rgba(224, 178, 106, .5); border-radius: 14px; }
+.mini-confirmar p { grid-column: 1 / -1; margin: 0; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.mini-confirmar small { grid-column: 1 / -1; margin-bottom: 4px; font-size: 12.5px; line-height: 1.4; color: var(--texto-2); text-wrap: pretty; }
+.mini-confirmar .accion-casa.principal { font-weight: 650; color: #1d1405; background: var(--ambar); border-color: var(--ambar); overflow-wrap: anywhere; }
+#mini-acciones > .accion-casa { width: 100%; margin-top: 12px; }
+
 #pc-mini-doof { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--borde); }
 .mini-titulo { margin: 0 0 4px; font-size: 16px; font-weight: 650; }
+#pc-mini-doof .casa-nota { margin-top: 0; }
 #pc-mini-doof .accion-casa { width: 100%; margin-top: 10px; }
-#pc-mini-doof .accion-casa.discreta { min-height: 44px; color: var(--tenue); background: transparent; }
-.mini-fila { display: flex; gap: 8px; margin-top: 12px; }
-.mini-fila input { flex: 1 1 auto; min-width: 0; min-height: 48px; padding: 8px 12px; font-size: 16px; color: inherit; background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; }
-#pc-mini-doof .mini-fila .accion-casa { flex: 0 0 auto; width: auto; margin-top: 0; }
-.mini-botones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
-#pc-mini-doof .mini-botones .accion-casa { margin-top: 0; overflow-wrap: anywhere; }
-.mini-confirmar { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; border: 1px solid rgba(224, 106, 122, .45); border-radius: 14px; }
-.mini-confirmar p { grid-column: 1 / -1; margin: 0; font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
-#pc-mini-doof .mini-confirmar .accion-casa { margin-top: 0; }
-.mini-respuesta { margin-top: 10px; padding: 10px 12px; background: var(--superficie); border: 1px solid var(--borde); border-radius: 12px; }
-.mini-respuesta b { display: block; font-size: 12.5px; font-weight: 600; color: var(--tenue); overflow-wrap: anywhere; }
-.mini-respuesta p { margin: 3px 0 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-.mini-respuesta.fallo p, .mini-error { color: #f0a3ae; }
-.mini-error { margin: 10px 0 0; font-size: 13.5px; }
+#pc-mini-doof .accion-casa.discreta { min-height: 44px; color: var(--tenue); background: transparent; border-color: transparent; }
 .banda button { margin-left: 10px; padding: 3px 10px; font: inherit; font-weight: 600; color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 999px; }
 .banda button[hidden] { display: none; }

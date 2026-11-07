@@ -126,6 +126,19 @@
       <div id="pc-mini-doof"></div>
     </section>
 
+    <section id="vista-mini" class="vista">
+      <div id="mini-mensajes" class="mensajes" aria-live="polite"></div>
+      <div class="mini-panel">
+        <div id="mini-acciones"></div>
+        <form id="mini-form" class="caja-texto">
+          <input id="mini-entrada" type="text" placeholder="Escríbele a mini Doof…" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" spellcheck="false" aria-label="Escríbele a mini Doof">
+          <button id="mini-enviar" class="enviar" type="submit" aria-label="Enviar" disabled>
+            <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </form>
+      </div>
+    </section>
+
     <section id="vista-agentes" class="vista seccion-casa">
       <div id="agentes-contenido" aria-live="polite"></div>
     </section>
@@ -185,6 +198,10 @@
       <button class="fila" data-destino="pc">
         <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
         <span class="fila-texto"><b>PC</b><small>Ver cómo está y apagarla</small></span>
+      </button>
+      <button class="fila" data-destino="mini">
+        <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="12" rx="2"/><path d="M9 7V4M15 7V4M9 19v2M15 19v2M3 11h2M3 15h2M19 11h2M19 15h2"/></svg></span>
+        <span class="fila-texto"><b>Mini Doof</b><small>Contesta con la PC apagada</small></span>
       </button>
       <button class="fila" data-destino="agentes">
         <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg></span>

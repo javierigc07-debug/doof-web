@@ -3,18 +3,22 @@
    Va por MQTT sobre WebSocket a dos brokers públicos: quien sea puede leer el tema, así que lo único que protege es el sobre AES-GCM. MQTT escrito a mano
    (lo poco que hace falta: conectar, suscribir, publicar sin QoS) porque la CSP de la app no carga scripts de fuera, y una librería entera sería más código que confiar.
 
-   La llave la entrega el puente una vez, con huella, y aquí queda cifrada con un PIN de Javier. Abierta, vive en memoria como una CryptoKey no extraíble. */
+   La llave la entrega el puente una vez, con huella, y queda en IndexedDB como CryptoKey no extraíble: se puede usar, pero ni este código puede volver a leerla. Sin PIN
+   a propósito (decisión de Javier, 6 nov 2026): se abre en una emergencia. Lo que la protege es el bloqueo del teléfono, y encender pide confirmar en la interfaz. */
 (() => {
   'use strict';
 
   const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
-  const CLAVE_SOBRE = 'mini_doof_sobre';
+  const BASE_DE_DATOS = 'mini_doof';
+  const ALMACEN = 'llave';
+  const CLAVE_LLAVE = 'actual';
+  const MARCA_INSTALADA = 'mini_doof_instalada';    // IndexedDB es asíncrona, y la interfaz necesita saberlo al pintar
+  const SOBRE_CON_PIN = 'mini_doof_sobre';          // versión anterior: una llave cifrada con PIN, que ya nadie va a abrir
   const CLAVE_ID = 'mini_doof_id';
-  const ITERACIONES_PIN = 600000;
-  const ESPERA_PRIMER_BROKER_MS = 8000;
+  const ESPERA_PRIMER_BROKER_MS = 20000;   // medido con VPN: abrir el socket ya tarda hasta 4,3 s, y con 8 s de margen el menú fallaba a veces
   const ESPERA_SEGUNDO_BROKER_MS = 2500;
   const LATIDO_MS = 25000;
-  const ESPERA_RESPUESTA_MS = 35000;       // "estado_pc" puede tardar unos 20 s si la PC no contesta al ping
+  const ESPERA_RESPUESTA_MS = 35000;       // "estado_pc" puede tardar si la Pi tiene que esperar a la PC
   const ESPERA_CHARLA_MS = 5 * 60 * 1000;  // en la Pi, el modelo puede tardar minutos
   const ALFABETO = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
@@ -35,9 +39,10 @@
     try {
       if (valor) localStorage.setItem(clave, valor);
       else localStorage.removeItem(clave);
-    } catch (e) { /* sin almacenamiento: la llave no quedará instalada, y sellar lo dice */ }
+    } catch (e) { /* sin almacenamiento, la llave no queda instalada, e instalar lo dice */ }
   }
 
+  // La Pi recuerda la charla por este id: tiene que ser el mismo en cada mensaje.
   function idDelTelefono() {
     let id = leer(CLAVE_ID);
     if (!id || !/^[A-Za-z0-9]{8,64}$/.test(id)) {
@@ -48,10 +53,28 @@
   }
 
   // ---------------------------------------------------------------- llave
-  async function derivarDePin(pin, sal, iteraciones) {
-    const base = await crypto.subtle.importKey('raw', texto.encode(pin), 'PBKDF2', false, ['deriveKey']);
-    return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: sal, iterations: iteraciones },
-      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  function abrirBase() {
+    return new Promise((listo, fallar) => {
+      const pedido = indexedDB.open(BASE_DE_DATOS, 1);
+      pedido.onupgradeneeded = () => pedido.result.createObjectStore(ALMACEN);
+      pedido.onsuccess = () => listo(pedido.result);
+      pedido.onerror = () => fallar(pedido.error);
+    });
+  }
+
+  async function operarLlave(modo, operar) {
+    const base = await abrirBase();
+    try {
+      return await new Promise((listo, fallar) => {
+        const transaccion = base.transaction(ALMACEN, modo);
+        const pedido = operar(transaccion.objectStore(ALMACEN));
+        transaccion.oncomplete = () => listo(pedido.result);
+        transaccion.onerror = () => fallar(transaccion.error);
+        transaccion.onabort = () => fallar(transaccion.error);
+      });
+    } finally {
+      base.close();
+    }
   }
 
   async function temaDe(cruda) {
@@ -63,19 +86,21 @@
     return 'mini-doof/' + Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
   }
 
-  async function sellar(claveB64, pin) {
+  async function instalar(claveB64) {
     const cruda = deB64(claveB64);
-    if (cruda.length !== 32) throw new Error('esa no es una llave de mini Doof');
-    const sal = crypto.getRandomValues(new Uint8Array(16));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const cifrador = await derivarDePin(pin, sal, ITERACIONES_PIN);
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cifrador, cruda);
-    escribir(CLAVE_SOBRE, JSON.stringify({ v: 1, sal: aB64(sal), iv: aB64(iv), iteraciones: ITERACIONES_PIN, ct: aB64(ct) }));
-    if (!instalada()) throw new Error('este teléfono no dejó guardarla');
+    if (cruda.length !== 32) throw new Error('Esa no es una llave de mini Doof.');
+    const tema = await temaDe(cruda);
+    const llave = await crypto.subtle.importKey('raw', cruda, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    cruda.fill(0);
+    await operarLlave('readwrite', (almacen) => almacen.put({ llave, tema }, CLAVE_LLAVE));
+    escribir(MARCA_INSTALADA, '1');
+    cerrar();
+    // Sin esto, el sistema puede borrarla si le falta espacio: justo cuando haga falta, con la PC apagada no se podría reinstalar.
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   }
 
   function instalada() {
-    return !!leer(CLAVE_SOBRE);
+    return !!leer(MARCA_INSTALADA);
   }
 
   // ---------------------------------------------------------------- MQTT
@@ -181,36 +206,21 @@
   // ---------------------------------------------------------------- sesión
   let sesion = null;
 
-  async function abrir(pin) {
-    const crudo = leer(CLAVE_SOBRE);
-    if (!crudo) throw new Error('no hay llave en este teléfono');
-    const sobre = JSON.parse(crudo);
-    let cruda;
-    try {
-      const cifrador = await derivarDePin(pin, deB64(sobre.sal), sobre.iteraciones);
-      cruda = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: deB64(sobre.iv) }, cifrador, deB64(sobre.ct)));
-    } catch (e) {
-      const err = new Error('PIN incorrecto');
-      err.pinMalo = true;
-      throw err;
+  async function abrir() {
+    const guardada = await operarLlave('readonly', (almacen) => almacen.get(CLAVE_LLAVE));
+    if (!guardada) {
+      escribir(MARCA_INSTALADA, '');     // el sistema la borró: mejor pedir instalarla que callar
+      throw new Error('Este teléfono ya no tiene la llave.');
     }
-    const tema = await temaDe(cruda);
-    const llave = await crypto.subtle.importKey('raw', cruda, 'AES-GCM', false, ['encrypt', 'decrypt']);
-    cruda.fill(0);
     cerrar();
-    sesion = { llave, tema, id: idDelTelefono(), brokers: new Map(), pendientes: new Map(), vistos: new Set() };
+    sesion = { llave: guardada.llave, tema: guardada.tema, id: idDelTelefono(), brokers: new Map(), pendientes: new Map(), vistos: new Set() };
   }
 
   function cerrar() {
     if (!sesion) return;
     sesion.brokers.forEach((b) => b.cerrar());
-    sesion.pendientes.forEach((p) => { clearTimeout(p.reloj); p.fallar(new Error('Mini Doof se cerró')); });
+    sesion.pendientes.forEach((p) => { clearTimeout(p.reloj); p.fallar(new Error('Mini Doof no responde')); });
     sesion = null;
-  }
-
-  function olvidar() {
-    cerrar();
-    escribir(CLAVE_SOBRE, '');
   }
 
   async function alRecibir(propia, carga) {
@@ -256,10 +266,9 @@
 
   async function pedir(accion, opciones = {}) {
     const propia = sesion;
-    if (!propia) throw new Error('Mini Doof está cerrado');
+    if (!propia) throw new Error('Mini Doof no responde');
     const brokers = await conectarBrokers(propia);
-    if (propia !== sesion) throw new Error('Mini Doof se cerró');
-    if (!brokers.length) throw new Error('Mini Doof no responde');
+    if (propia !== sesion || !brokers.length) throw new Error('Mini Doof no responde');
     const n = alfanumerico(16);
     const peticion = { n, ts: Math.floor(Date.now() / 1000), accion };
     if (opciones.texto) peticion.texto = opciones.texto;
@@ -276,5 +285,7 @@
     });
   }
 
-  window.MiniDoof = { instalada, sellar, abrir, abierta: () => !!sesion, pedir, cerrar, olvidar, temaDe, deB64 };
+  escribir(SOBRE_CON_PIN, '');
+
+  window.MiniDoof = { instalada, instalar, abrir, abierta: () => !!sesion, pedir, cerrar, temaDe };
 })();

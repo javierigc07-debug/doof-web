@@ -1569,13 +1569,24 @@
   };
 
   function nodoMensajeP(m) {
-    const esYo = (m.emisor === 'yo' || m.rol === 'usuario');
+    const esYo = (m.emisor === 'yo' || m.emisor === 'usuario' || m.rol === 'usuario' || m.rol === 'yo');
     const d = elemento('div', 'mensaje ' + (esYo ? 'yo' : 'doof'));
     const o = elemento('div', 'msg-origen');
-    o.textContent = esYo ? 'Tú' : 'Agente P';
+    if (esYo) {
+      o.textContent = 'Tú';
+    } else {
+      const img = elemento('img', 'p-msg-avatar');
+      img.src = 'static/iconos/agente_p.png';
+      img.alt = '';
+      o.append(img, document.createTextNode('Agente P'));
+    }
 
     const cuerpo = elemento('div', 'msg-cuerpo' + (m.fallo ? ' fallo' : ''));
-    cuerpo.textContent = m.texto || '';
+    const lineas = (m.texto || '').split('\n');
+    lineas.forEach((lin, idx) => {
+      if (idx > 0) cuerpo.append(document.createElement('br'));
+      cuerpo.append(document.createTextNode(lin));
+    });
 
     if (m.esperando) {
       const sp = elemento('span', 'p-esperando', ' ⏳');
@@ -1742,10 +1753,20 @@
       if (res.objetivo) P.objetivo = res.objetivo;
       if (res.plataforma) P.plataforma = res.plataforma;
 
+      if (res.objetivo !== undefined) P.objetivo = res.objetivo;
+      if (res.plataforma !== undefined) P.plataforma = res.plataforma;
+
       if (res.mensaje) {
         P.mensajes.push(res.mensaje);
+      } else if (res.texto) {
+        P.mensajes.push({ emisor: 'agente_p', texto: res.texto, adjunto: res.adjunto });
       }
-      await cargarConversacionesP();
+
+      try {
+        const histRes = await api('/agente-p/conversaciones');
+        P.conversaciones = histRes.conversaciones || [];
+        pintarHistorialP();
+      } catch (eH) {}
     } catch (err) {
       const idxEsp = P.mensajes.indexOf(msgEsperando);
       if (idxEsp !== -1) P.mensajes.splice(idxEsp, 1);

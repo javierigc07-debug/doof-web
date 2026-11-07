@@ -993,8 +993,25 @@ body[data-vista="agente-p"] #compositor {
   gap: 10px;
 }
 
-.p-sombrero {
-  font-size: 1.35rem;
+.p-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--acento-p);
+  background: var(--superficie-2);
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(63, 208, 192, .25);
+}
+
+.p-msg-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--acento-p);
+  vertical-align: middle;
+  margin-right: 6px;
 }
 
 .p-subcab-info strong {

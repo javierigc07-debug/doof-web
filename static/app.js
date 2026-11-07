@@ -41,14 +41,19 @@
     filtroHistorial: '',
     luz: null,
     luzFalla: null,
-    luzLeida: null,
     pc: null,
     pcFalla: null,
     apagadoHasta: 0,          // en el reloj del teléfono: el servidor manda cuánto falta, no una hora
     turnoSeccion: 0,          // cambiarlo deja sin efecto el refresco de una sección que ya no se ve
+    arranque: null,           // lo que entregó /arranque en el último sondeo; ponerseAlDia lo consume
+    sinArranque: false,       // el puente es viejo y no tiene /arranque: se sigue por /salud
+    luzLeida: null,
+    cache: null,              // lo último que se vio, para pintar el inicio antes de que conteste la PC
+    pcLeida: null,
   };
 
   const NOMBRE = 'Javier';
+  const VERSION = '2026.11.07';
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -62,6 +67,10 @@
   const espacioEntreLecturasS = (n) => (n < 6 ? 30 : n < 14 ? 60 : 120);
   const ESPERA_SI_GITHUB_LIMITA_S = 300;
   const REFRESCO_LUZ_MS = 15000;
+  const REFRESCO_INICIO_MS = 30000;       // las tarjetas del inicio se renuevan solas mientras se mira
+  const LUZ_FRESCA_MS = 3 * 60 * 1000;    // una lectura de luz más vieja que esto se rotula como "última lectura", nunca como "hay luz"
+  const PC_FRESCA_MS = 2 * 60 * 1000;
+  const CLAVE_CACHE = 'doof_cache_v1';
   const REFRESCO_PC_MS = 10000;
   const TIEMPO_LUZ_MS = 35000;
   const APAGANDO_COMO_MAXIMO_MS = 3 * 60 * 1000;   // si sigue viva pasado esto, Windows no llegó a apagarse
@@ -73,7 +82,7 @@
   const ESPERA_ABRIR_MINI_MS = 15000;
   const CERRAR_MINI_AL_OCULTAR_MS = 5 * 60 * 1000;
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', agentes: 'Agentes', mini: 'Mini Doof' };
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', agentes: 'Agentes', mini: 'Charlene' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -215,7 +224,7 @@
     if (ES_REMOTO) guardar('doof_base', url);
   }
 
-  async function api(ruta, opciones = {}, tiempoMs = 20000) {
+  async function api(ruta, opciones = {}, tiempoMs = 20000, silencioso = false) {
     if (ES_REMOTO && !S.base) {
       const err = new Error('sin conexión con la PC');
       err.sinRed = true;
@@ -242,7 +251,7 @@
       let datos = {};
       try { datos = await r.json(); } catch (e) { /* respuesta sin JSON */ }
       if (r.status === 401) {
-        mostrarLogin('Ese token ya no sirve.');
+        if (!silencioso) mostrarLogin('Ese token ya no sirve.');
         const err = new Error('no autorizado');
         err.status = 401;
         throw err;
@@ -288,7 +297,7 @@
   function sobreDelEnlace() {
     const m = location.hash.match(/^#s=(.+)$/);
     if (!m) return null;
-    history.replaceState(null, '', location.pathname);
+    history.replaceState(history.state, '', location.pathname);
     try {
       return JSON.parse(atob(decodeURIComponent(m[1]).replace(/-/g, '+').replace(/_/g, '/')));
     } catch (e) {
@@ -311,10 +320,26 @@
     while (document.hidden) await pausa(60000);
   }
 
-  async function probarBase() {
+  const esperar = (ms, valor) => new Promise((listo) => setTimeout(() => listo(valor), ms));
+  const T = { inicio: 0, enlinea: 0, alDia: 0, cache: 0 };     // tiempos (ms desde que abrió la página) para el diagnóstico del menú
+
+  // /arranque entrega en un viaje lo que antes eran seis; con "ligera" solo se pregunta si la PC vive (volver al primer plano).
+  async function probarBase(ms = 6000, ligera = false) {
     if (ES_REMOTO && !S.base) return 'sin-red';
+    if (!ligera && !S.sinArranque) {
+      try {
+        const d = await api('/arranque', {}, ms, true);
+        S.arranque = d;
+        S.salud = !!d.hud;
+        return 'ok';
+      } catch (e) {
+        if (e.status === 401) return 'token';
+        if (e.status !== 404) return 'sin-red';
+        S.sinArranque = true;       // puente viejo, recién actualizado Pages: sigue por /salud
+      }
+    }
     try {
-      const d = await api('/salud', {}, 10000);
+      const d = await api('/salud', {}, 10000, true);
       S.salud = !!d.hud;
       return d.auth ? 'ok' : 'token';
     } catch (e) {
@@ -324,6 +349,28 @@
 
   let lecturasDeDireccion = 0;
   let proximaLectura = 0;
+  let ultimaLecturaForzada = 0;
+
+  // Al volver a primer plano o recuperar señal, el espaciado de lecturas no debe tener a la app esperando 1-2 min con la dirección nueva ya publicada.
+  // Tope de una cada 30 s: GitHub da 60 lecturas por hora por IP.
+  function permitirLecturaYa() {
+    if (S.conectado === true || Date.now() - ultimaLecturaForzada < 30000) return;
+    ultimaLecturaForzada = Date.now();
+    proximaLectura = 0;
+    lecturasDeDireccion = Math.min(lecturasDeDireccion, 3);
+  }
+
+  // La dirección nueva, 'token' si el sobre no abre con este token, o null si no toca leer o no se pudo.
+  async function direccionPublicadaSiToca() {
+    if (Date.now() < proximaLectura) return null;
+    proximaLectura = Date.now() + espacioEntreLecturasS(lecturasDeDireccion++) * 1000;
+    try {
+      return (await leerDireccionPublicada()).url;
+    } catch (e) {
+      if (e.limiteGitHub) proximaLectura = Date.now() + ESPERA_SI_GITHUB_LIMITA_S * 1000;
+      return e.name === 'OperationError' ? 'token' : null;
+    }
+  }
 
   async function intentarConexion() {
     if (S.sobreEnlace) {
@@ -332,42 +379,63 @@
       // Un link viejo o mal pegado no debe sacar a nadie: si no abre, sigue el camino normal.
       try { ponerBase((await abrirSobre(sobre)).url); } catch (e) { /* nada */ }
     }
-    const primera = await probarBase();
-    if (primera !== 'sin-red' || !ES_REMOTO) return primera;
-    if (Date.now() < proximaLectura) return 'sin-red';
-    proximaLectura = Date.now() + espacioEntreLecturasS(lecturasDeDireccion++) * 1000;
-    try {
-      const { url } = await leerDireccionPublicada();
-      if (url === S.base) return 'sin-red';
-      ponerBase(url);
-    } catch (e) {
-      if (e.limiteGitHub) proximaLectura = Date.now() + ESPERA_SI_GITHUB_LIMITA_S * 1000;
-      return e.name === 'OperationError' ? 'token' : 'sin-red';
+    const prueba = probarBase();
+    let primera = await Promise.race([prueba, esperar(3000, 'lenta')]);
+    let lectura = null;
+    if (primera === 'lenta') {
+      // La dirección guardada no contesta en 3 s: se va a buscar la nueva sin esperar el corte de la vieja.
+      if (ES_REMOTO) lectura = direccionPublicadaSiToca();
+      primera = await prueba;
     }
+    if (primera !== 'sin-red' || !ES_REMOTO) return primera;
+    const url = await (lectura || direccionPublicadaSiToca());
+    if (url === 'token') return 'token';
+    if (!url || url === S.base) return 'sin-red';
+    ponerBase(url);
     return probarBase();
   }
 
   async function ponerseAlDia() {
-    const d = await api('/novedades?desde=-1', {}, 15000);
-    // Tras una caída breve, /novedades entrega lo que se perdió. Solo se recarga todo si el puente reinició.
+    let d = S.arranque;
+    S.arranque = null;
+    if (!d) {
+      // Puente sin /arranque: lo mismo, pero en paralelo y no en fila.
+      const sinSerFatal = (e) => { if (e.status === 401) throw e; return null; };
+      const [nov, ses, conv, apr, hue] = await Promise.all([
+        api('/novedades?desde=-1', {}, 15000),
+        api('/sesion').catch(sinSerFatal),
+        api('/conversaciones').catch(sinSerFatal),
+        api('/aprobaciones').catch(sinSerFatal),
+        api('/huella').catch(sinSerFatal),
+      ]);
+      d = { ciclo: nov.ciclo, ultimo: nov.ultimo, sesion: ses, conversaciones: conv, aprobaciones: apr, huella: hue };
+    }
+    // Tras una caída breve el cursor sigue valiendo y /novedades entrega lo perdido. Solo se recarga todo si el puente reinició.
     if (d.ciclo !== S.ciclo || !S.cargado) {
       S.ciclo = d.ciclo;
       S.cursor = d.ultimo;
-      await cargarSesion();
+      if (d.sesion) {
+        S.sesion = d.sesion.sesion_id;
+        S.mensajes = (d.sesion.mensajes || []).map(normalizarMensaje).slice(-MAX_MENSAJES);
+      }
+      S.cargado = true;           // sin sesión es el HUD caído: la app igual abre, en modo sin conexión
       S.evitarRepetidos = true;     // lo que llegó entre el cursor y la sesión vendría dos veces
       pintarMensajes();
-      pintarInicio();
     }
-    await cargarConversaciones(false);
-    await cargarAprobaciones();
+    S.conversaciones = Array.isArray(d.conversaciones) ? d.conversaciones : (S.conversaciones || []);
+    S.aprobaciones = d.aprobaciones?.pendientes || [];
+    S.huellaRegistrada = !!d.huella?.registrada;
+    pintarAprobaciones();
     pintarInicio();
     actualizarBarra();
+    T.alDia = Math.round(performance.now());
+    guardarCache();
     if (!S.enlaceInicialVisto) {
       S.enlaceInicialVisto = true;
       // Deep link desde una notificación: ?sesion=<id> abre ese archivo.
       const sesion = new URLSearchParams(location.search).get('sesion');
       if (sesion) {
-        history.replaceState({}, '', location.pathname);
+        history.replaceState(history.state, '', location.pathname);
         verConversacion(sesion);
       }
     }
@@ -595,7 +663,7 @@
     const caja = document.createElement('section');
     caja.className = 'aprobacion';
     const titulo = document.createElement('h3');
-    titulo.textContent = 'Instalar la llave de mini Doof';
+    titulo.textContent = 'Instalar la llave de Charlene';
     const cuerpo = document.createElement('p');
     cuerpo.className = 'cuerpo';
     cuerpo.textContent = 'Queda guardada en este teléfono y sirve con la PC apagada. Quien tenga el teléfono desbloqueado podrá encender la PC con ella.';
@@ -658,6 +726,7 @@
     S.conectando = true;
     const vuelta = ++S.vuelta;
     let intento = 0;
+    T.inicio = Math.round(performance.now());
     while (vuelta === S.vuelta) {
       await esperarVisible();
       const resultado = await intentarConexion();
@@ -669,13 +738,17 @@
       if (resultado === 'ok') {
         lecturasDeDireccion = 0;
         proximaLectura = 0;
+        // "En línea" apenas contestó la PC: el resto de la puesta al día ya no depende de ningún viaje largo.
+        S.conectado = true;
+        T.enlinea = Math.round(performance.now());
+        actualizarEstado();
         try {
           await ponerseAlDia();
           if (vuelta !== S.vuelta) return;
           S.conectando = false;
-          S.conectado = true;
           actualizarEstado();
           bucleNovedades(vuelta);
+          cargarEstadoInicio();
           return;
         } catch (e) {
           if (e.status === 401) return;
@@ -720,10 +793,11 @@
   }
 
   async function revisarAlVolver() {
+    permitirLecturaYa();
     despertar();
     if (!$('#login').hidden || S.conectando) return;
     // El sistema pudo congelar la consulta abierta mientras la app estaba en segundo plano: esto no la espera.
-    if ((await probarBase()) !== 'ok') conectar();
+    if ((await probarBase(6000, true)) !== 'ok') conectar();
   }
 
   // ---------------------------------------------------------------- estado visual
@@ -743,6 +817,8 @@
     if (mostrar) $('#banda-texto').textContent = 'PC sin conexión · reintentando…';
     $('#banda-mini').hidden = S.vista === 'mini';
     alCambiarConexionMini();
+    pintarEstadoCasa();
+    pintarMenuConexion();
   }
 
   function actualizarBarra() {
@@ -763,21 +839,110 @@
     actualizarEstado();
   }
 
-  function irAInicio() {
+  // ---------------------------------------------------------------- historial: "atrás"
+  // Cada capa que tapa lo de abajo (una vista distinta de Inicio, una hoja, el visor de imagen) lleva su propia entrada en el historial y "atrás" cierra
+  // solo la de arriba. Antes las hojas no apilaban nada: con el menú abierto en Inicio el gesto de Android no tenía qué retroceder y cerraba la app.
+  // Debajo de todo hay una guarda ('raiz'): el primer atrás desde Inicio avisa y el segundo sale de verdad.
+  // Todo cambio del historial pasa por una cola: history.back() es asíncrono y empujar justo después caía sobre la entrada equivocada.
+  const H = { capas: [], ignorar: 0, alVolver: null, cola: Promise.resolve(), relojGuarda: null };
+  const enCola = (f) => { H.cola = H.cola.then(f).catch(() => {}); return H.cola; };
+
+  function guarda() {
+    if (history.state?.doof === 'raiz') history.pushState({ doof: 'app' }, '');
+  }
+
+  function empujarCapa(tipo) {
+    H.capas.push(tipo);
+    const n = H.capas.length;
+    enCola(() => { guarda(); history.pushState({ doof: 'capa', n }, ''); });
+  }
+
+  function quitarCapas(cuantas) {
+    const n = Math.min(cuantas, H.capas.length);
+    if (n <= 0) return Promise.resolve();
+    H.capas.length -= n;
+    return enCola(() => new Promise((listo) => {
+      H.ignorar += 1;
+      const terminar = () => {
+        if (H.alVolver === terminar) { H.alVolver = null; H.ignorar = Math.max(0, H.ignorar - 1); }   // popstate no llegó: no se queda esperando
+        listo();
+      };
+      H.alVolver = terminar;
+      setTimeout(terminar, 500);
+      history.go(-n);
+    }));
+  }
+
+  function iniciarHistorial() {
+    const e = history.state;
+    if (e?.doof === 'capa') {
+      // Recarga con capas apiladas: la app arranca en Inicio, así que se deshace lo que quedó encima.
+      H.ignorar = 1;
+      setTimeout(() => { H.ignorar = 0; }, 800);
+      history.go(-(e.n || 1));
+    } else if (!e?.doof) {
+      history.replaceState({ doof: 'raiz' }, '');
+      history.pushState({ doof: 'app' }, '');
+    } else if (e.doof === 'raiz') {
+      history.pushState({ doof: 'app' }, '');
+    }
+  }
+
+  // El gesto o botón del sistema. El navegador ya sacó una entrada: aquí solo se cierra la capa que le correspondía.
+  function alGestoAtras() {
+    if (H.ignorar > 0) {
+      H.ignorar -= 1;
+      const f = H.alVolver;
+      H.alVolver = null;
+      if (f) f();
+      return;
+    }
+    if (history.state?.doof === 'raiz') {
+      H.capas.length = 0;
+      cerrarVisorUI();
+      cerrarHojasUI();
+      if (S.vista !== 'inicio') irAInicioUI();
+      avisar('Atrás otra vez para salir');
+      clearTimeout(H.relojGuarda);
+      H.relojGuarda = setTimeout(() => enCola(guarda), 2600);
+      return;
+    }
+    const capa = H.capas.pop();
+    if (capa === 'visor') cerrarVisorUI();
+    else if (capa === 'hoja') cerrarHojasUI();
+    else if (capa === 'vista') volverUI();
+  }
+
+  // Lo mismo, pedido por la barra o por Escape: aquí sí hay que sacar la entrada del historial.
+  function atras() {
+    const tope = H.capas[H.capas.length - 1];
+    if (tope === 'visor') cerrarVisor();
+    else if (tope === 'hoja') cerrarHojas();
+    else if (S.vista !== 'inicio') volver();
+  }
+
+  function irAInicioUI() {
     if (S.vista === 'inicio') return;
     S.vista = 'inicio';
     actualizarBarra();
-    cerrarHojas();
+    cerrarHojasUI();
     pintarInicio();
+    cargarEstadoInicio();
   }
 
-  // Entre vistas se reemplaza la entrada del historial: "atrás" siempre vuelve al inicio, no recorre lo que se fue abriendo.
+  function irAInicio() {
+    cerrarVisorUI();
+    cerrarHojasUI();
+    irAInicioUI();
+    quitarCapas(H.capas.length);
+  }
+
+  // Entre vistas no se apilan entradas: la capa 'vista' es una sola y "atrás" siempre vuelve al inicio.
   function entrarAVista(vista) {
-    const desdeInicio = S.vista === 'inicio';
+    cerrarHojas();
     S.vista = vista;
     actualizarBarra();
-    if (desdeInicio) history.pushState({ vista }, '');
-    else history.replaceState({ vista }, '');
+    if (!H.capas.includes('vista')) empujarCapa('vista');
   }
 
   function irAChat() {
@@ -799,14 +964,19 @@
     refrescarSeccion();
   }
 
+  async function irAlChatDesdeElMenu() {
+    if (S.soloLectura) await volverActiva(true);
+    else irAChat();
+  }
+
   function alElegirDelMenu(destino) {
+    if (destino === 'conversaciones') { abrirHoja('hoja-historial'); return; }     // una hoja reemplaza a la otra: no apila entradas
     cerrarHojas();
-    if (destino === 'conversaciones') abrirHoja('hoja-historial');
-    else if (destino === 'inicio') {
+    if (destino === 'inicio') {
       if (S.soloLectura) volverActiva(false);
-      else if (history.state?.vista) history.back();
       else irAInicio();
-    } else irASeccion(destino);
+    } else if (destino === 'chat') irAlChatDesdeElMenu();
+    else irASeccion(destino);
   }
 
   async function volverActiva(abrirChat = false) {
@@ -823,9 +993,17 @@
     pintarMensajes();
     pintarInicio();
     if (abrirChat) {
-      history.replaceState({ vista: 'chat' }, '');
+      if (!H.capas.includes('vista')) empujarCapa('vista');
       setTimeout(() => alFinal(true), 30);
+    } else {
+      quitarCapas(H.capas.length);
+      cargarEstadoInicio();
     }
+  }
+
+  function volverUI() {
+    if (S.soloLectura) volverActiva(false);
+    else irAInicioUI();
   }
 
   function volver() {
@@ -859,6 +1037,8 @@
       A.falla = e;
     }
     if (S.vista === 'agentes') pintarAgentes();
+    else if (S.vista === 'inicio') pintarEstadoCasa();
+    guardarCache();
   }
 
   function filaAgente(a) {
@@ -883,7 +1063,7 @@
       return;
     }
     const trabajando = d.estado === 'trabajando';
-    caja.appendChild(encabezadoCasa(trabajando ? 'mal' : 'bien', d.nombre, `${d.proyecto} · ${trabajando ? 'trabajando desde' : 'libre desde'} ${d.hace}`));
+    caja.appendChild(encabezadoCasa(trabajando ? 'alerta' : 'bien', d.nombre, `${d.proyecto} · ${trabajando ? 'trabajando desde' : 'libre desde'} ${d.hace}`));
     if (d.titulo || d.pedido) {
       caja.appendChild(elemento('p', 'casa-subtitulo', 'Lo último que le pidieron'));
       caja.appendChild(elemento('p', 'agente-pedido', d.pedido || d.titulo));
@@ -911,7 +1091,7 @@
       caja.appendChild(encabezadoCasa('', 'No hay agentes abiertos', 'Cuando abras una sesión de Claude Code en la PC aparecerá aquí.'));
     } else {
       const n = A.lista.trabajando;
-      caja.appendChild(encabezadoCasa(n ? 'mal' : 'bien', n ? `${n} trabajando` : 'Todos libres', n ? 'Te aviso por el chat cuando termine cada uno.' : 'Ninguno está ocupado ahora.'));
+      caja.appendChild(encabezadoCasa(n ? 'alerta' : 'bien', n ? `${n} trabajando` : 'Todos libres', n ? 'Te aviso por el chat cuando termine cada uno.' : 'Ninguno está ocupado ahora.'));
       const lista = elemento('div', 'agentes-lista');
       for (const a of A.lista.sesiones) lista.appendChild(filaAgente(a));
       caja.appendChild(lista);
@@ -977,6 +1157,8 @@
       S.luzFalla = e;
     }
     if (S.vista === 'luz') pintarLuz();
+    else if (S.vista === 'inicio') pintarEstadoCasa();
+    guardarCache();
   }
 
   function encabezadoLuz() {
@@ -1048,6 +1230,7 @@
     try {
       S.pc = await api('/pc');
       S.pcFalla = null;
+      S.pcLeida = new Date();
       const faltan = S.pc.apagado_faltan_seg || 0;
       if (faltan > 0) ponerCuentaApagado(faltan);
       // Si faltaba y ya no: lo cancelaron desde otro lado. Si ya pasó la hora, se está apagando, salvo que pase demasiado.
@@ -1058,6 +1241,8 @@
       S.pcFalla = e;
     }
     if (S.vista === 'pc') pintarPc();
+    else if (S.vista === 'inicio') pintarEstadoCasa();
+    guardarCache();
   }
 
   function textoCuenta() {
@@ -1131,18 +1316,18 @@
     }
   }
 
-  // ---------------------------------------------------------------- mini Doof
+  // ---------------------------------------------------------------- Charlene
   // Vive en la Raspberry y contesta aunque la PC esté apagada: nada de aquí pasa por el puente, salvo instalar la llave. Lo que dice la Pi se pinta con textContent.
   // Los botones los decide ella: aquí solo se ordenan por tema, y un id que no esté en esta lista cae en el último grupo, así que uno nuevo aparece solo.
   const GRUPOS_MINI = [
     ['PC', ['estado_pc', 'encender']],
     ['Casa', ['luz', 'autonomia', 'cortes']],
     ['Agenda', ['horario', 'notas']],
-    ['Mini Doof', ['estado_doof', 'reinicios', 'modo_seguro', 'modo_normal']],
+    ['Charlene', ['estado_doof', 'reinicios', 'modo_seguro', 'modo_normal']],
   ];
   const CLAVE_MENU_MINI = 'mini_doof_menu';
   const MINI_NO_RESPONDE = 'No me llega nada de la Raspberry. Se reinicia cada vez que cambia entre baterías y calle: prueba otra vez en un par de minutos.';
-  const SALUDO_MINI = 'Soy mini Doof. Vivo en la Raspberry, así que contesto aunque la PC esté apagada. Los botones leen datos reales; si me escribes, respondo con lo que sé y puedo equivocarme.';
+  const SALUDO_MINI = 'Soy Charlene. Vivo en la Raspberry, así que contesto aunque la PC esté apagada. Los botones leen datos reales; si me escribes, respondo con lo que sé y puedo equivocarme.';
   const TEXTO_CONEXION_MINI = { buscando: 'Buscando la Raspberry…', lista: 'Raspberry en línea', caida: 'La Raspberry no responde' };
 
   function menuGuardadoMini() {
@@ -1187,11 +1372,11 @@
   function pintarAccesoMini() {
     const caja = $('#pc-mini-doof');
     caja.textContent = '';
-    caja.append(elemento('h3', 'mini-titulo', 'Mini Doof'));
+    caja.append(elemento('h3', 'mini-titulo', 'Charlene'));
     const pedida = S.aprobaciones.some((a) => a.tipo === TIPO_LLAVE);
     if (window.MiniDoof.instalada()) {
       caja.append(elemento('p', 'casa-nota', 'Contesta y puede encender la PC aunque esté apagada.'));
-      caja.append(botonCasa('Abrir mini Doof', '', () => irASeccion('mini')));
+      caja.append(botonCasa('Abrir Charlene', '', () => irASeccion('mini')));
       if (!pcCaida() && !pedida) caja.append(botonCasa('Instalar la llave de nuevo', 'discreta', pedirLlaveMini));
     } else if (pcCaida()) {
       caja.append(elemento('p', 'casa-nota', 'Este teléfono no tiene su llave, y solo se instala con la PC encendida.'));
@@ -1282,8 +1467,8 @@
     caja.textContent = '';
     if (window.MiniDoof.instalada()) caja.append(nodoMensajeMini({ rol: 'bot', texto: SALUDO_MINI }));
     else caja.append(nodoMensajeMini({ rol: 'bot', texto: pcCaida()
-      ? 'Soy mini Doof y vivo en la Raspberry, pero este teléfono todavía no tiene mi llave. Se instala con la PC encendida.'
-      : 'Soy mini Doof y vivo en la Raspberry: contesto aunque la PC esté apagada. Para eso, este teléfono necesita mi llave. Se instala una vez, con tu huella.' }));
+      ? 'Soy Charlene y vivo en la Raspberry, pero este teléfono todavía no tiene mi llave. Se instala con la PC encendida.'
+      : 'Soy Charlene y vivo en la Raspberry: contesto aunque la PC esté apagada. Para eso, este teléfono necesita mi llave. Se instala una vez, con tu huella.' }));
     mini.mensajes.forEach((m) => caja.append(nodoMensajeMini(m)));
     caja.scrollTop = caja.scrollHeight;
   }
@@ -1396,20 +1581,141 @@
     $('#saludo').textContent = `${saludo()}, ${NOMBRE}`;
   }
 
+  // ---- lo último que se vio, guardado para pintar el inicio al instante (siempre rotulado con su antigüedad)
+  function leerCache() {
+    try { return JSON.parse(localStorage.getItem(CLAVE_CACHE)) || null; } catch (e) { return null; }
+  }
+
+  let relojCache = null;
+  function guardarCache() {
+    clearTimeout(relojCache);
+    relojCache = setTimeout(() => {
+      const ahora = Date.now();
+      if (!S.token) return;
+      const luz = resumenLuz(S.luz);
+      try {
+        const foto = {
+          t: ahora,
+          conversaciones: (S.conversaciones || []).filter((c) => c.cantidad > 0).slice(0, 20),
+          continuar: adelantoContinuar(),
+          pc: S.pc ? { encendida_hace: S.pc.encendida_hace, t: (S.pcLeida || new Date()).getTime() } : S.cache?.pc || null,
+          luz: luz ? { titulo: luz.titulo, soc: luz.soc, t: (S.luzLeida || new Date()).getTime() } : S.cache?.luz || null,
+          agentes: A.lista ? { trabajando: A.lista.trabajando, total: A.lista.sesiones.length, t: (A.leida || new Date()).getTime() } : S.cache?.agentes || null,
+        };
+        S.cache = foto;
+        localStorage.setItem(CLAVE_CACHE, JSON.stringify(foto));
+      } catch (e) { /* sin caché: el inicio sale como antes */ }
+    }, 1000);
+  }
+
+  function adelantoContinuar() {
+    if (!S.mensajes.length || S.soloLectura) return '';
+    const ultimo = [...S.mensajes].reverse().find((m) => m.texto || m.adjunto);
+    return ultimo ? (ultimo.texto || ('📎 ' + (ultimo.adjunto?.nombre || 'archivo'))).slice(0, 140) : '';
+  }
+
+  function haceTexto(t) {
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 60) return 'hace un momento';
+    if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+    if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
+    return `hace ${Math.floor(s / 86400)} d`;
+  }
+
+  // Lo mismo que decide encabezadoLuz, en resumen para la tarjeta. Python ya resolvió el estado: aquí solo se nombra.
+  function resumenLuz(d) {
+    if (!d) return null;
+    const soc = d.bateria?.soc_pct ?? null;
+    if (d.estado === 'sin_respuesta' || d.estado === 'bms_desconectado' || d.falta_clave) return { clase: '', titulo: 'No sé si hay luz', soc, detalle: d.ultimo ? `Último dato ${d.ultimo.hace}` : 'La Raspberry no responde' };
+    if (d.estado === 'sin_luz') return { clase: 'mal', titulo: 'Sin luz', soc, detalle: d.corte_actual ? `Lleva ${d.corte_actual.dura}` : 'Las baterías sostienen la casa' };
+    const sentido = { cargando: 'cargando', descargando: 'descargando', reposo: 'en reposo' }[d.bateria?.sentido];
+    return { clase: 'bien', titulo: 'Hay luz', soc, detalle: soc === null ? 'Batería sin dato' : `Batería ${soc} %${sentido ? ' · ' + sentido : ''}` };
+  }
+
+  function ponerMosaico(id, { clase = '', valor, detalle = '', medidor = null }) {
+    const m = $('#' + id);
+    m.className = 'mosaico' + (clase ? ' ' + clase : '');
+    m.querySelector('.mosaico-valor').textContent = valor;
+    m.querySelector('.mosaico-detalle').textContent = detalle;
+    const barra = m.querySelector('.mosaico-medidor');
+    if (barra) {
+      barra.hidden = medidor === null;
+      if (medidor !== null) {
+        barra.className = 'mosaico-medidor' + (medidor <= 15 ? ' bajo' : medidor <= 35 ? ' medio' : '');
+        barra.firstElementChild.style.width = Math.min(100, Math.max(0, medidor)) + '%';
+      }
+    }
+  }
+
+  function pintarEstadoCasa() {
+    if (!$('#mosaico-pc')) return;
+    const c = S.cache || {};
+    const ahora = Date.now();
+    const conectando = S.conectado !== true && S.conectado !== false;
+
+    // PC
+    const pcFresca = S.pc && S.pcLeida && ahora - S.pcLeida < PC_FRESCA_MS && S.conectado === true;
+    if (S.conectado === false) ponerMosaico('mosaico-pc', { clase: 'mal', valor: 'Sin conexión', detalle: c.pc ? `Última lectura ${haceTexto(c.pc.t)}` : 'Reintentando…' });
+    else if (pcFresca) ponerMosaico('mosaico-pc', { clase: 'bien', valor: 'Encendida', detalle: `CPU ${S.pc.cpu} % · RAM ${S.pc.ram} %` });
+    else if (S.pcFalla && S.conectado === true) ponerMosaico('mosaico-pc', { clase: 'mal', valor: 'No responde', detalle: 'Toca para ver' });
+    else if (conectando && c.pc) ponerMosaico('mosaico-pc', { clase: 'espera viejo', valor: 'Conectando…', detalle: `Última lectura ${haceTexto(c.pc.t)}` });
+    else ponerMosaico('mosaico-pc', { clase: 'espera', valor: 'Conectando…', detalle: '' });
+
+    // Luz: una lectura vieja nunca se presenta como "hay luz" (la Raspberry se reinicia con cada corte).
+    const luzViva = S.luz && S.luzLeida && ahora - S.luzLeida < LUZ_FRESCA_MS ? resumenLuz(S.luz) : null;
+    if (luzViva) ponerMosaico('mosaico-luz', { clase: luzViva.clase, valor: luzViva.titulo, detalle: luzViva.detalle, medidor: luzViva.clase === 'bien' || luzViva.clase === 'mal' ? luzViva.soc : null });
+    else if (S.luzFalla) ponerMosaico('mosaico-luz', { valor: 'No sé si hay luz', detalle: 'No llegó la lectura' });
+    else {
+      const vieja = S.luz && S.luzLeida ? { titulo: resumenLuz(S.luz).titulo, soc: resumenLuz(S.luz).soc, t: S.luzLeida.getTime() } : c.luz;
+      if (vieja) ponerMosaico('mosaico-luz', { clase: 'viejo', valor: 'Última lectura', detalle: `${vieja.soc === null || vieja.soc === undefined ? vieja.titulo : vieja.soc + ' %'} · ${haceTexto(vieja.t)}` });
+      else ponerMosaico('mosaico-luz', { clase: S.conectado === true ? 'espera' : '', valor: S.conectado === true ? 'Mirando…' : 'Sin dato', detalle: '' });
+    }
+
+    // Agentes
+    const fila = $('#mosaico-agentes');
+    const texto = fila.querySelector('small');
+    const lista = A.lista || null;
+    let clase = '';
+    if (lista) {
+      const n = lista.trabajando;
+      clase = n ? 'trabajando' : lista.sesiones.length ? 'bien' : '';
+      texto.textContent = !lista.sesiones.length ? 'Ningún agente abierto' : n ? `${n} trabajando · ${lista.sesiones.length - n} libres` : 'Todos libres';
+    } else if (A.falla) texto.textContent = 'No llego a los agentes';
+    else if (c.agentes) { clase = ''; texto.textContent = `${c.agentes.trabajando ? c.agentes.trabajando + ' trabajando' : 'Todos libres'} · ${haceTexto(c.agentes.t)}`; }
+    else texto.textContent = S.conectado === true ? 'Preguntándole a la PC…' : 'Sin dato';
+    fila.className = 'fila-agentes' + (clase ? ' ' + clase : '');
+  }
+
+  function pintarMenuConexion() {
+    const el = $('#menu-conexion');
+    if (!el) return;
+    // El tiempo que tardó en conectar queda a la vista a propósito: es lo que hay que comparar al medir, no adivinar.
+    const tiempo = T.enlinea > T.inicio && T.inicio ? ` · conectó en ${((T.enlinea - T.inicio) / 1000).toFixed(1).replace('.', ',')} s` : '';
+    el.textContent = S.conectado === true ? `PC en línea${tiempo}` : S.conectado === false ? 'PC sin conexión' : 'Conectando con la PC…';
+  }
+
+  // Las tarjetas del inicio se renuevan solas mientras se mira. Luz no se pide cada vez: consulta a la Raspberry y puede tardar hasta 30 s.
+  let turnoInicio = 0;
+  async function cargarEstadoInicio() {
+    const turno = ++turnoInicio;
+    if (S.vista !== 'inicio' || document.hidden || S.conectado !== true) return;
+    const tareas = [cargarPc(), cargarAgentes()];
+    if (!S.luzLeida || Date.now() - S.luzLeida > LUZ_FRESCA_MS) tareas.push(cargarLuz());
+    await Promise.allSettled(tareas);
+    if (turno !== turnoInicio || S.vista !== 'inicio') return;
+    await pausa(REFRESCO_INICIO_MS);
+    if (turno === turnoInicio) cargarEstadoInicio();
+  }
+
   function pintarInicio() {
     pintarFecha();
+    pintarEstadoCasa();
 
-    // "Sigue donde ibas": la sesión activa, si tiene algo.
+    // "Sigue donde ibas": la sesión activa, si tiene algo; mientras la PC no contesta, lo último que se vio.
     const continuar = $('#continuar');
-    if (S.mensajes.length && !S.soloLectura) {
-      const ultimo = [...S.mensajes].reverse().find(m => m.texto || m.adjunto);
-      continuar.hidden = false;
-      $('#continuar-adelanto').textContent = ultimo
-        ? (ultimo.texto || ('📎 ' + (ultimo.adjunto?.nombre || 'archivo')))
-        : '';
-    } else {
-      continuar.hidden = true;
-    }
+    const adelanto = adelantoContinuar() || (!S.cargado && S.cache?.continuar) || '';
+    continuar.hidden = !adelanto;
+    $('#continuar-adelanto').textContent = adelanto;
 
     const recientes = S.conversaciones.filter(c => c.cantidad > 0).slice(0, 5);
     const caja = $('#recientes');
@@ -1835,13 +2141,14 @@
     img.alt = 'Vista previa';
     velo.appendChild(img);
     velo.hidden = false;
-    const cerrar = () => { velo.hidden = true; velo.textContent = ''; };
-    velo.addEventListener('click', cerrar, { once: true });
+    velo.onclick = cerrarVisor;
+    empujarCapa('visor');
   }
 
   // ---------------------------------------------------------------- historial
   function abrirHoja(id) {
-    cerrarHojas();
+    if (hojaAbierta()) cerrarHojasUI();       // una hoja sustituye a la otra: la entrada del historial es la misma
+    else empujarCapa('hoja');
     const hoja = $('#' + id);
     hoja.classList.add('abierta');
     hoja.setAttribute('aria-hidden', 'false');
@@ -1856,12 +2163,31 @@
     }
   }
 
-  function cerrarHojas() {
+  const hojaAbierta = () => !!$('.hoja.abierta');
+
+  function cerrarHojasUI() {
     for (const hoja of $$('.hoja')) {
       hoja.classList.remove('abierta');
       hoja.setAttribute('aria-hidden', 'true');
     }
     document.body.classList.remove('con-hoja');
+  }
+
+  function cerrarHojas() {
+    const abierta = hojaAbierta();
+    cerrarHojasUI();
+    if (abierta && H.capas[H.capas.length - 1] === 'hoja') quitarCapas(1);
+  }
+
+  function cerrarVisorUI() {
+    const velo = $('#velo');
+    velo.hidden = true;
+    velo.textContent = '';
+  }
+
+  function cerrarVisor() {
+    cerrarVisorUI();
+    if (H.capas[H.capas.length - 1] === 'visor') quitarCapas(1);
   }
 
   function pintarHistorial() {
@@ -2007,7 +2333,11 @@
     S.token = leerGuardado('doof_token');
     if (ES_REMOTO) S.base = leerGuardado('doof_base');
     S.sobreEnlace = sobreDelEnlace();
+    // Lo último que se vio, rotulado como tal, para que el inicio no salga vacío mientras la PC contesta.
+    S.cache = S.token ? leerCache() : null;
+    if (S.cache?.conversaciones) S.conversaciones = S.cache.conversaciones;
     pintarInicio();
+    T.cache = Math.round(performance.now());
     actualizarBarra();
     actualizarEstado();
     if (!S.token) {
@@ -2019,11 +2349,7 @@
 
   function cablear() {
     $('#btn-enviar').addEventListener('click', () => enviarTexto($('#entrada').value));
-    $('#btn-atras').addEventListener('click', () => {
-      if (S.soloLectura) { volverActiva(false); return; }
-      if (history.state?.vista) history.back();
-      else irAInicio();
-    });
+    $('#btn-atras').addEventListener('click', atras);
     $('#btn-historial').addEventListener('click', () => abrirHoja('hoja-menu'));
     $$('#hoja-menu .fila').forEach((f) => f.addEventListener('click', () => alElegirDelMenu(f.dataset.destino)));
     $('#btn-nueva-barra').addEventListener('click', () => nuevaConversacion());
@@ -2072,16 +2398,16 @@
     $('#btn-abajo').addEventListener('click', () => alFinal(true));
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        if (!$('#velo').hidden) { $('#velo').hidden = true; $('#velo').textContent = ''; return; }
-        if ($('.hoja.abierta')) { cerrarHojas(); return; }
-        if (S.vista !== 'inicio') volver();
-      }
+      if (e.key === 'Escape') atras();
     });
 
-    window.addEventListener('popstate', () => {
-      if (S.vista !== 'inicio') volver();
+    window.addEventListener('popstate', alGestoAtras);
+
+    $('#estado-casa').addEventListener('click', (e) => {
+      const destino = e.target.closest('[data-destino]')?.dataset.destino;
+      if (destino) irASeccion(destino);
     });
+    $('#menu-salir').addEventListener('click', cerrarSesion);
 
     document.addEventListener('paste', (e) => {
       const item = Array.from(e.clipboardData?.items || []).find(i => i.kind === 'file');
@@ -2103,6 +2429,7 @@
       if (document.hidden) return;
       revisarAlVolver();
       refrescarSeccion();
+      cargarEstadoInicio();
     });
     window.addEventListener('online', revisarAlVolver);     // volvió la señal del teléfono: no hay por qué esperar al siguiente reintento
 
@@ -2114,20 +2441,30 @@
   }
 
   function mostrarBotonInstalar() {
-    if ($('#instalar') || window.matchMedia('(display-mode: standalone)').matches) return;
-    const b = document.createElement('button');
-    b.id = 'instalar';
-    b.className = 'enlace';
-    b.textContent = 'Instalar Doof en el teléfono';
-    b.style.margin = '10px auto 0';
-    b.addEventListener('click', async () => {
+    const boton = $('#menu-instalar');
+    if (!boton || window.matchMedia('(display-mode: standalone)').matches) return;
+    boton.hidden = false;
+    boton.onclick = async () => {
       if (!S.instalable) return;
       S.instalable.prompt();
       await S.instalable.userChoice;
       S.instalable = null;
-      b.remove();
-    });
-    $('.pie-inicio').before(b);
+      boton.hidden = true;
+    };
+  }
+
+  // Dos toques: cerrar sesión borra el token y la dirección guardados, y no se debe poder hacer sin querer.
+  function cerrarSesion() {
+    const boton = $('#menu-salir');
+    if (!boton.classList.contains('confirmar')) {
+      boton.classList.add('confirmar');
+      boton.textContent = 'Toca otra vez para cerrar sesión';
+      setTimeout(() => { boton.classList.remove('confirmar'); boton.textContent = 'Cerrar sesión'; }, 4000);
+      return;
+    }
+    S.vuelta += 1;
+    for (const clave of ['doof_token', 'doof_base', CLAVE_CACHE]) guardar(clave, '');
+    location.reload();
   }
 
   function registrarSW() {
@@ -2177,8 +2514,9 @@
     cablear();
     pintarFecha();
     document.body.dataset.vista = 'inicio';
-    document.body.style.setProperty('--altura', window.innerHeight + 'px');
+    $('#menu-version').textContent = `DoofApp ${VERSION}`;
     registrarSW();
+    iniciarHistorial();
     arrancar();
   }
 

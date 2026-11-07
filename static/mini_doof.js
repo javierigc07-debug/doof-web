@@ -1,4 +1,4 @@
-/* Mini Doof: hablarle a la Raspberry directo desde el teléfono, para cuando la PC está apagada y no hay puente ni túnel.
+/* Charlene: hablarle a la Raspberry directo desde el teléfono, para cuando la PC está apagada y no hay puente ni túnel.
 
    Va por MQTT sobre WebSocket a dos brokers públicos: quien sea puede leer el tema, así que lo único que protege es el sobre AES-GCM. MQTT escrito a mano
    (lo poco que hace falta: conectar, suscribir, publicar sin QoS) porque la CSP de la app no carga scripts de fuera, y una librería entera sería más código que confiar.
@@ -88,7 +88,7 @@
 
   async function instalar(claveB64) {
     const cruda = deB64(claveB64);
-    if (cruda.length !== 32) throw new Error('Esa no es una llave de mini Doof.');
+    if (cruda.length !== 32) throw new Error('Esa no es una llave de Charlene.');
     const tema = await temaDe(cruda);
     const llave = await crypto.subtle.importKey('raw', cruda, 'AES-GCM', false, ['encrypt', 'decrypt']);
     cruda.fill(0);
@@ -219,7 +219,7 @@
   function cerrar() {
     if (!sesion) return;
     sesion.brokers.forEach((b) => b.cerrar());
-    sesion.pendientes.forEach((p) => { clearTimeout(p.reloj); p.fallar(new Error('Mini Doof no responde')); });
+    sesion.pendientes.forEach((p) => { clearTimeout(p.reloj); p.fallar(new Error('Charlene no responde')); });
     sesion = null;
   }
 
@@ -266,9 +266,9 @@
 
   async function pedir(accion, opciones = {}) {
     const propia = sesion;
-    if (!propia) throw new Error('Mini Doof no responde');
+    if (!propia) throw new Error('Charlene no responde');
     const brokers = await conectarBrokers(propia);
-    if (propia !== sesion || !brokers.length) throw new Error('Mini Doof no responde');
+    if (propia !== sesion || !brokers.length) throw new Error('Charlene no responde');
     const n = alfanumerico(16);
     const peticion = { n, ts: Math.floor(Date.now() / 1000), accion };
     if (opciones.texto) peticion.texto = opciones.texto;
@@ -278,7 +278,7 @@
     return new Promise((cumplir, fallar) => {
       const vencer = () => {
         propia.pendientes.delete(n);
-        fallar(new Error('Mini Doof no responde'));
+        fallar(new Error('Charlene no responde'));
       };
       propia.pendientes.set(n, { cumplir, fallar, vencer, alParcial: opciones.alParcial, reloj: setTimeout(vencer, ESPERA_RESPUESTA_MS) });
       brokers.forEach((b) => b.publicar(`${propia.tema}/in/${propia.id}`, carga));

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#0f0b1c">
+  <meta name="theme-color" content="#0a0f1e">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Doof, en el bolsillo. El mismo asistente de la PC, con sus chats y sus avisos.">
   <meta name="mobile-web-app-capable" content="yes">
@@ -52,13 +52,12 @@
     </button>
   </header>
 
-  <div id="banda" class="banda" hidden><span class="punto"></span><span id="banda-texto">PC sin conexión</span><button id="banda-mini" type="button" hidden>Mini Doof</button></div>
+  <div id="banda" class="banda" hidden><span class="punto"></span><span id="banda-texto">PC sin conexión</span><button id="banda-mini" type="button" hidden>Charlene</button></div>
 
   <main id="vistas">
 
     <section id="vista-inicio" class="vista activa">
-      <div class="heroe">
-        <div class="halo"></div>
+      <header class="inicio-cab">
         <svg class="ojo grande" viewBox="0 0 64 64" aria-hidden="true">
           <g class="globo">
             <circle class="orbita" cx="32" cy="32" r="27"/>
@@ -68,9 +67,32 @@
             <circle class="brillo" cx="35.5" cy="28" r="2"/>
           </g>
         </svg>
-        <h1 id="saludo">Buenas</h1>
-        <p id="fecha" class="fecha"></p>
-        <div id="estado-pc" class="pastilla-estado conectando"><i></i><span>Conectando…</span></div>
+        <div class="inicio-saludo">
+          <h1 id="saludo">Buenas</h1>
+          <p id="fecha" class="fecha"></p>
+        </div>
+      </header>
+
+      <!-- Conserva el id viejo: una carga puede juntar este HTML con el app.js anterior del caché, y esa versión busca #estado-pc. -->
+      <div id="estado-pc" class="pastilla-estado conectando" hidden><i></i><span>Conectando…</span></div>
+
+      <div class="estado-casa" id="estado-casa">
+        <button type="button" class="mosaico" id="mosaico-pc" data-destino="pc">
+          <span class="mosaico-cab"><i class="mosaico-punto"></i><span>PC</span></span>
+          <strong class="mosaico-valor">Conectando…</strong>
+          <small class="mosaico-detalle"></small>
+        </button>
+        <button type="button" class="mosaico" id="mosaico-luz" data-destino="luz">
+          <span class="mosaico-cab"><i class="mosaico-punto"></i><span>Luz</span></span>
+          <strong class="mosaico-valor">Sin dato</strong>
+          <small class="mosaico-detalle"></small>
+          <span class="mosaico-medidor" hidden><span></span></span>
+        </button>
+        <button type="button" class="fila-agentes" id="mosaico-agentes" data-destino="agentes">
+          <i class="mosaico-punto"></i>
+          <span class="fila-agentes-texto"><strong>Agentes</strong><small>Preguntándole a la PC…</small></span>
+          <svg class="flecha" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
       </div>
 
       <div class="chips" id="chips">
@@ -82,12 +104,7 @@
 
       <button id="continuar" class="continuar" hidden>
         <span class="continuar-ojo">
-          <svg class="ojo chico" viewBox="0 0 64 64" aria-hidden="true">
-            <g class="globo">
-              <path class="parpado" d="M5 32c7.5-12.5 16.5-18.5 27-18.5S51.5 19.5 59 32c-7.5 12.5-16.5 18.5-27 18.5S12.5 44.5 5 32Z"/>
-              <circle class="iris" cx="32" cy="32" r="11"/><circle class="pupila" cx="32" cy="32" r="5"/>
-            </g>
-          </svg>
+          <svg class="chat-icono" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 01-8 8H7l-4 3v-6.5A8 8 0 1121 12z"/></svg>
         </span>
         <span class="continuar-texto"><b>Sigue donde ibas</b><small id="continuar-adelanto"></small></span>
         <svg class="flecha" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
@@ -100,8 +117,6 @@
         </div>
         <div id="recientes" class="lista"></div>
       </div>
-
-      <p class="pie-inicio">Doof vive en tu PC. Si está apagada, no hay magia.</p>
     </section>
 
     <section id="vista-chat" class="vista">
@@ -131,7 +146,7 @@
       <div class="mini-panel">
         <div id="mini-acciones"></div>
         <form id="mini-form" class="caja-texto">
-          <input id="mini-entrada" type="text" placeholder="Escríbele a mini Doof…" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" spellcheck="false" aria-label="Escríbele a mini Doof">
+          <input id="mini-entrada" type="text" placeholder="Escríbele a Charlene…" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" spellcheck="false" aria-label="Escríbele a Charlene">
           <button id="mini-enviar" class="enviar" type="submit" aria-label="Enviar" disabled>
             <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
           </button>
@@ -182,32 +197,53 @@
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
-    <nav class="lista menu-lista">
-      <button class="fila" data-destino="inicio">
-        <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-8 8H7l-4 3v-6.5A8 8 0 1121 12z"/></svg></span>
-        <span class="fila-texto"><b>Hablar con Doof</b></span>
-      </button>
-      <button class="fila" data-destino="conversaciones">
-        <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
-        <span class="fila-texto"><b>Conversaciones</b></span>
-      </button>
-      <button class="fila" data-destino="luz">
-        <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"/></svg></span>
-        <span class="fila-texto"><b>Luz</b><small>Baterías y cortes</small></span>
-      </button>
-      <button class="fila" data-destino="pc">
-        <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
-        <span class="fila-texto"><b>PC</b><small>Ver cómo está y apagarla</small></span>
-      </button>
-      <button class="fila" data-destino="mini">
-        <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="12" rx="2"/><path d="M9 7V4M15 7V4M9 19v2M15 19v2M3 11h2M3 15h2M19 11h2M19 15h2"/></svg></span>
-        <span class="fila-texto"><b>Mini Doof</b><small>Contesta con la PC apagada</small></span>
-      </button>
-      <button class="fila" data-destino="agentes">
-        <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg></span>
-        <span class="fila-texto"><b>Agentes</b><small>Sesiones de Claude Code y más</small></span>
-      </button>
+    <nav class="menu-lista" aria-label="Secciones">
+      <div class="menu-grupo" role="group" aria-labelledby="mg-doof">
+        <p class="menu-etiqueta" id="mg-doof">Conversar</p>
+        <button class="fila" data-destino="inicio">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 01-1 1h-4v-6H9v6H5a1 1 0 01-1-1z"/></svg></span>
+          <span class="fila-texto"><b>Inicio</b><small>Cómo está todo</small></span>
+        </button>
+        <button class="fila" data-destino="chat">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-8 8H7l-4 3v-6.5A8 8 0 1121 12z"/></svg></span>
+          <span class="fila-texto"><b>Chat con Doof</b><small>La conversación de ahora</small></span>
+        </button>
+        <button class="fila" data-destino="conversaciones">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
+          <span class="fila-texto"><b>Conversaciones</b><small>Historial y búsqueda</small></span>
+        </button>
+      </div>
+      <div class="menu-grupo" role="group" aria-labelledby="mg-casa">
+        <p class="menu-etiqueta" id="mg-casa">Casa</p>
+        <button class="fila" data-destino="luz">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"/></svg></span>
+          <span class="fila-texto"><b>Luz</b><small>Baterías y cortes</small></span>
+        </button>
+        <button class="fila" data-destino="pc">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+          <span class="fila-texto"><b>PC</b><small>Ver cómo está y apagarla</small></span>
+        </button>
+      </div>
+      <div class="menu-grupo" role="group" aria-labelledby="mg-herr">
+        <p class="menu-etiqueta" id="mg-herr">Herramientas</p>
+        <button class="fila" data-destino="mini">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="12" rx="2"/><path d="M9 7V4M15 7V4M9 19v2M15 19v2M3 11h2M3 15h2M19 11h2M19 15h2"/></svg></span>
+          <span class="fila-texto"><b>Charlene</b><small>Contesta con la PC apagada</small></span>
+        </button>
+        <button class="fila" data-destino="agentes">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg></span>
+          <span class="fila-texto"><b>Agentes</b><small>Sesiones de Claude Code</small></span>
+        </button>
+      </div>
     </nav>
+    <div class="menu-pie">
+      <p id="menu-conexion" class="menu-conexion" aria-live="polite"></p>
+      <div class="menu-pie-botones">
+        <button id="menu-instalar" class="menu-boton" type="button" hidden>Instalar en el teléfono</button>
+        <button id="menu-salir" class="menu-boton" type="button">Cerrar sesión</button>
+      </div>
+      <p id="menu-version" class="menu-version"></p>
+    </div>
   </div>
 </aside>
 

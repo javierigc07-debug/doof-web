@@ -1638,7 +1638,7 @@
     if (!P.mensajes.length) {
       const saludo = {
         emisor: 'agente_p',
-        texto: 'Agente P en línea. Indica un objetivo (ej. @usuario en TikTok) o haz una consulta sobre el perfil analizado.',
+        texto: 'Agente P listo. ¿A quién investigo?',
       };
       caja.append(nodoMensajeP(saludo));
     } else {
@@ -1770,9 +1770,12 @@
     } catch (err) {
       const idxEsp = P.mensajes.indexOf(msgEsperando);
       if (idxEsp !== -1) P.mensajes.splice(idxEsp, 1);
+      const esSinRed = err.sinRed || err.message?.includes('sin conexión');
       P.mensajes.push({
         emisor: 'agente_p',
-        texto: 'Error de Agente P: ' + (err.message || 'operación fallida'),
+        texto: esSinRed
+          ? 'No hay conexión con la PC ahora mismo. Asegúrate de estar en la misma red WiFi y de que el bot esté corriendo.'
+          : ('Error: ' + (err.message || 'operación fallida')),
         fallo: true,
       });
     } finally {

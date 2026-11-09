@@ -924,8 +924,25 @@ body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data
 @keyframes agente-pulso { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .agente-fila.trabajando .agente-punto { animation: none; } }
 .agente-pedido { margin: 0; font-size: 14px; line-height: 1.45; color: var(--muted); }
-.agente-resultado { margin: 6px 0 0; padding: 12px 14px; font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+.agente-resultado { margin: 6px 0 0; padding: 12px 14px; font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere;
   background: var(--superficie); border-radius: var(--r-s); }
+.agente-responder { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.agente-responder[hidden] { display: none; }
+#agente-aprobacion:not(:empty) { margin-top: 18px; }
+.agente-campo { width: 100%; min-height: 84px; resize: vertical; padding: 12px 14px; font: inherit; font-size: 15px; line-height: 1.45; color: inherit;
+  background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--r-m); }
+.agente-campo:disabled { opacity: .55; }
+.agente-texto-a-enviar { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Markdown de lo que escribe un agente (renderMarkdown en app.js) */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md-parrafo { margin: 10px 0 0; }
+.md-titulo { margin: 16px 0 4px; font-weight: 700; line-height: 1.3; }
+.md-titulo.n1 { font-size: 17px; } .md-titulo.n2 { font-size: 15.5px; } .md-titulo.n3 { font-size: 14.5px; color: var(--muted); }
+.md-lista { margin: 6px 0 0; padding-left: 20px; }
+.md-lista li { margin: 4px 0; }
+.md code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: .9em; padding: 1px 5px; border-radius: 4px; background: rgba(127,127,127,.22); }
+.md-codigo { margin: 10px 0 0; padding: 10px 12px; overflow-x: auto; font: 12.5px/1.45 ui-monospace, 'Cascadia Code', Consolas, monospace; background: rgba(127,127,127,.18); border-radius: var(--r-s); white-space: pre; }
 .agente-mas { margin-top: 14px; font-size: 13.5px; }
 .agente-mas summary { cursor: pointer; color: var(--muted); }
 

@@ -77,6 +77,8 @@
   const TIPO_APAGAR = 'apagar_pc';
   const TIPO_PAGO = 'pago_movil';
   const TIPO_LLAVE = 'mini_doof_llave';
+  const TIPO_RESPONDER = 'responder_agente';
+  const MAX_RESPUESTA_AGENTE = 2000;      // el bot rechaza más que esto
   const MAX_TEXTO_MINI = 200;     // la Pi recorta lo que pase de ahí sin avisar
   const MAX_MENSAJES_MINI = 30;
   const ESPERA_ABRIR_MINI_MS = 15000;
@@ -493,6 +495,12 @@
       if (aprobacion.tipo === TIPO_APAGAR) {
         ponerCuentaApagado(resultado.apagado_faltan_seg || 0);
         pintarPc();
+      } else if (aprobacion.tipo === TIPO_RESPONDER) {
+        // Contesta por el chat de Doof cuando el agente termine: aquí no hay nada que esperar en pantalla.
+        avisar('Enviado. Te aviso por el chat cuando conteste.');
+        await cargarAprobaciones();
+        await cargarAgentes();
+        return;
       } else if (aprobacion.tipo === TIPO_LLAVE) {
         await window.MiniDoof.instalar(resultado.clave);
         await cargarAprobaciones();
@@ -515,7 +523,7 @@
   async function cancelarAprobacion(aprobacion) {
     try {
       await postJson(`/aprobaciones/${aprobacion.id}/cancelar`);
-      const avisos = { [TIPO_APAGAR]: 'Cancelado: la PC sigue prendida.', [TIPO_PAGO]: 'Cancelado: no se movió nada.', [TIPO_LLAVE]: 'Cancelado: la llave no salió de la PC.' };
+      const avisos = { [TIPO_APAGAR]: 'Cancelado: la PC sigue prendida.', [TIPO_PAGO]: 'Cancelado: no se movió nada.', [TIPO_LLAVE]: 'Cancelado: la llave no salió de la PC.', [TIPO_RESPONDER]: 'Cancelado: no le dije nada al agente.' };
       avisar(avisos[aprobacion.tipo] || 'Cancelado: no envié nada.');
     } catch (e) {
       avisar('No pude cancelarlo: ' + e.message);
@@ -672,6 +680,23 @@
     return caja;
   }
 
+  function tarjetaRespuestaAgente(aprobacion) {
+    const r = aprobacion.resumen || {};
+    const caja = document.createElement('section');
+    caja.className = 'aprobacion';
+    const titulo = document.createElement('h3');
+    titulo.textContent = `Responderle a «${r.agente || 'el agente'}»`;
+    const texto = document.createElement('p');
+    texto.className = 'cuerpo agente-texto-a-enviar';
+    texto.textContent = r.texto || '';
+    const nota = document.createElement('p');
+    nota.className = 'cuerpo';
+    nota.textContent = 'Corre con los permisos normales de tu PC: lo que pida confirmación se niega y él te lo dirá. La terminal donde está abierto no verá este intercambio en vivo.';
+    caja.append(titulo, texto, nota);
+    ponerAccionesDeHuella(caja, aprobacion, 'Enviar con huella', 'Para responderle desde la app, primero activa la huella en este teléfono.');
+    return caja;
+  }
+
   function ponerAccionesDeHuella(caja, aprobacion, textoPrincipal, textoSinHuella) {
     const acciones = document.createElement('div');
     acciones.className = 'acciones';
@@ -701,16 +726,19 @@
     caja.append(acciones);
   }
 
-  const esDeLaSeccionPc = (a) => a.tipo === TIPO_APAGAR || a.tipo === TIPO_LLAVE;
+  const esDeOtraSeccion = (a) => a.tipo === TIPO_APAGAR || a.tipo === TIPO_LLAVE || a.tipo === TIPO_RESPONDER;
 
   // La de apagar vive en la sección PC: en el chat, un botón de apagar junto a lo que se escribe sería un mal toque esperando a pasar.
   function pintarAprobaciones() {
     const caja = $('#aprobaciones');
     const cajaPc = $('#pc-aprobacion');
     const escrito = $('#codigo-huella')?.value;
-    const delChat = S.aprobaciones.filter((a) => !esDeLaSeccionPc(a));
+    const delChat = S.aprobaciones.filter((a) => !esDeOtraSeccion(a));
     caja.textContent = '';
     cajaPc.textContent = '';
+    $('#agente-aprobacion').textContent = '';
+    S.aprobaciones.filter((a) => a.tipo === TIPO_RESPONDER).slice(0, 1).forEach((a) => $('#agente-aprobacion').appendChild(tarjetaRespuestaAgente(a)));
+    pintarResponder();
     delChat.forEach((a) => caja.appendChild(a.tipo === TIPO_PAGO ? tarjetaPago(a) : tarjetaAprobacion(a)));
     S.aprobaciones.filter((a) => a.tipo === TIPO_APAGAR).slice(0, 1).forEach((a) => cajaPc.appendChild(tarjetaApagado(a)));
     S.aprobaciones.filter((a) => a.tipo === TIPO_LLAVE).slice(0, 1).forEach((a) => cajaPc.appendChild(tarjetaLlave(a)));
@@ -1016,8 +1044,8 @@
   }
 
   // ---------------------------------------------------------------- agentes
-  // Solo lectura: Doof lista las sesiones de agentes de terminal de la PC y lo que dejaron; aquí no se les da órdenes. El aviso de "terminó"
-  // llega como un mensaje más de Doof por el chat, así que no hay nada que escuchar aparte.
+  // Doof lista las sesiones de agentes de terminal de la PC y lo que dejaron. Responderles pasa por la huella (tarjeta TIPO_RESPONDER): el agente tiene
+  // permisos sobre la PC. El aviso de "terminó" y su respuesta llegan como un mensaje más de Doof por el chat, así que no hay nada que escuchar aparte.
   const REFRESCO_AGENTES_MS = 8000;
   const A = { lista: null, falla: null, abierto: null, detalle: null, detalleFalla: null, leida: null };
 
@@ -1043,6 +1071,102 @@
     if (S.vista === 'agentes') pintarAgentes();
     else if (S.vista === 'inicio') pintarEstadoCasa();
     guardarCache();
+  }
+
+  // Lo que escribe un agente viene en Markdown (títulos, listas, **negritas**, `código`). Se pinta con nodos DOM y textContent, nunca con innerHTML:
+  // el texto sale de una sesión con permisos sobre la PC y no debe poder inyectar HTML en la app. Solo los casos que de verdad escriben.
+  function mdEnLinea(padre, texto) {
+    const re = /(\*\*[^*\n]+\*\*|`[^`\n]+`|\*[^*\s][^*\n]*\*)/g;
+    let ultimo = 0, m;
+    while ((m = re.exec(texto))) {
+      if (m.index > ultimo) padre.append(texto.slice(ultimo, m.index));
+      const t = m[0];
+      if (t.startsWith('**')) padre.append(elemento('strong', '', t.slice(2, -2)));
+      else if (t.startsWith('`')) padre.append(elemento('code', '', t.slice(1, -1)));
+      else padre.append(elemento('em', '', t.slice(1, -1)));
+      ultimo = m.index + t.length;
+    }
+    if (ultimo < texto.length) padre.append(texto.slice(ultimo));
+  }
+
+  function renderMarkdown(texto) {
+    const raiz = elemento('div', 'md');
+    const lineas = String(texto || '').replace(/\r\n?/g, '\n').split('\n');
+    let lista = null, parrafo = null, codigo = null;
+    const cerrar = () => { lista = null; parrafo = null; };
+    for (const linea of lineas) {
+      if (/^\s*```/.test(linea)) {                       // la fence abre y cierra un bloque de código
+        if (codigo) { raiz.append(codigo.pre); codigo = null; } else { cerrar(); codigo = { pre: elemento('pre', 'md-codigo'), lineas: [] }; }
+        continue;
+      }
+      if (codigo) { codigo.lineas.push(linea); codigo.pre.textContent = codigo.lineas.join('\n'); continue; }
+      let m;
+      if (!linea.trim()) { cerrar(); continue; }
+      if ((m = /^(#{1,6})\s+(.*)$/.exec(linea))) {
+        cerrar();
+        const h = elemento('p', 'md-titulo n' + Math.min(m[1].length, 3));
+        mdEnLinea(h, m[2]);
+        raiz.append(h);
+      } else if ((m = /^\s*([-*•]|\d+[.)])\s+(.*)$/.exec(linea))) {
+        const ordenada = /\d/.test(m[1]);
+        if (!lista || lista.ordenada !== ordenada) {
+          parrafo = null;
+          lista = { ordenada, el: elemento(ordenada ? 'ol' : 'ul', 'md-lista') };
+          raiz.append(lista.el);
+        }
+        const li = elemento('li', '');
+        mdEnLinea(li, m[2]);
+        lista.el.append(li);
+      } else {
+        lista = null;
+        if (!parrafo) { parrafo = elemento('p', 'md-parrafo'); raiz.append(parrafo); }
+        else parrafo.append(document.createElement('br'));
+        mdEnLinea(parrafo, linea.trim());
+      }
+    }
+    if (codigo) raiz.append(codigo.pre);                 // una fence sin cerrar (el texto se recorta) igual se muestra
+    return raiz;
+  }
+
+  // El campo vive fuera de #agentes-contenido y se crea una sola vez: ese contenedor se repinta cada 8 s, y repintar un textarea borraría lo que
+  // Javier está escribiendo y le quitaría el teclado.
+  function pintarResponder() {
+    const caja = $('#agente-responder');
+    if (!caja) return;
+    const d = S.vista === 'agentes' && A.abierto && !A.detalleFalla ? A.detalle : null;
+    const esperandoHuella = S.aprobaciones.some((a) => a.tipo === TIPO_RESPONDER);
+    caja.hidden = !d || esperandoHuella;
+    if (caja.hidden) return;
+    if (!A.campo) {
+      A.campo = elemento('textarea', 'agente-campo');
+      A.campo.rows = 3;
+      A.campo.maxLength = MAX_RESPUESTA_AGENTE;
+      A.campo.setAttribute('aria-label', 'Respuesta para el agente');
+      A.campo.placeholder = 'Respóndele a este agente…';
+      A.nota = elemento('p', 'casa-nota');
+      A.boton = botonDe('Responder', pedirRespuestaAgente, true);
+      caja.append(A.campo, A.boton, A.nota);
+    }
+    if (A.campoPara !== A.abierto) { A.campo.value = ''; A.campoPara = A.abierto; }     // el borrador de un agente no se le manda a otro
+    A.campo.disabled = !d.puede_responder;
+    A.boton.disabled = !d.puede_responder;
+    A.nota.textContent = d.puede_responder
+      ? 'Te pide la huella antes de enviarle nada. Su respuesta te llega por el chat.'
+      : d.agente !== 'claude_code' ? 'A este agente solo se le puede leer.' : 'Sigue trabajando: podrás responderle cuando termine.';
+  }
+
+  async function pedirRespuestaAgente(boton) {
+    const texto = A.campo.value.trim();
+    if (!texto) { avisar('Escribe qué le quieres decir.'); return; }
+    boton.disabled = true;
+    try {
+      await postJson(`/agentes/${encodeURIComponent(A.abierto)}/responder`, { texto });
+      A.campo.value = '';
+      await cargarAprobaciones();      // deja la tarjeta con la huella y esconde el campo
+    } catch (e) {
+      avisar(e.message || 'No pude preparar la respuesta.');
+    }
+    boton.disabled = false;
   }
 
   function filaAgente(a) {
@@ -1073,11 +1197,14 @@
       caja.appendChild(elemento('p', 'agente-pedido', d.pedido || d.titulo));
     }
     caja.appendChild(elemento('p', 'casa-subtitulo', trabajando ? 'Lo que lleva dicho' : 'Lo que dejó'));
-    caja.appendChild(elemento('div', 'agente-resultado', d.resultado || (trabajando ? 'Sigue en eso: todavía no ha escrito nada que mostrar.' : 'No dejó ningún texto.')));
+    const resultado = elemento('div', 'agente-resultado');
+    if (d.resultado) resultado.append(renderMarkdown(d.resultado));
+    else resultado.textContent = trabajando ? 'Sigue en eso: todavía no ha escrito nada que mostrar.' : 'No dejó ningún texto.';
+    caja.appendChild(resultado);
     if (d.mensajes && d.mensajes.length > 1) {
       const mas = elemento('details', 'agente-mas');
       mas.append(elemento('summary', '', `Mensajes anteriores del turno (${d.mensajes.length - 1})`));
-      for (const m of d.mensajes.slice(0, -1)) mas.append(elemento('div', 'agente-resultado', m));
+      for (const m of d.mensajes.slice(0, -1)) { const c = elemento('div', 'agente-resultado'); c.append(renderMarkdown(m)); mas.append(c); }
       caja.appendChild(mas);
     }
   }
@@ -1100,7 +1227,8 @@
       for (const a of A.lista.sesiones) lista.appendChild(filaAgente(a));
       caja.appendChild(lista);
     }
-    if (A.leida && !A.abierto) caja.appendChild(elemento('p', 'casa-nota', `Leído a las ${hora(A.leida)}. Solo se miran: desde aquí no se les manda nada.`));
+    if (A.leida && !A.abierto) caja.appendChild(elemento('p', 'casa-nota', `Leído a las ${hora(A.leida)}. Toca uno para ver lo que dejó y responderle.`));
+    pintarResponder();
   }
 
   // ---------------------------------------------------------------- USDT
@@ -2678,7 +2806,7 @@
     } else if (tipo === 'aprobacion') {
       // La tarjeta del WhatsApp vive sobre el compositor, que en Luz y PC no se ve: sin esto vencería sin que Javier la vea.
       cargarAprobaciones().then(() => {
-        if ((S.vista === 'luz' || S.vista === 'pc') && S.aprobaciones.some((a) => !esDeLaSeccionPc(a))) {
+        if ((S.vista === 'luz' || S.vista === 'pc') && S.aprobaciones.some((a) => !esDeOtraSeccion(a))) {
           avisar('Doof espera tu huella', 'Ver', () => irAChat());
         }
       });

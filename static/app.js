@@ -82,7 +82,7 @@
   const ESPERA_ABRIR_MINI_MS = 15000;
   const CERRAR_MINI_AL_OCULTAR_MS = 5 * 60 * 1000;
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -827,6 +827,7 @@
     $('#vista-chat').classList.toggle('activa', S.vista === 'chat');
     $('#vista-luz').classList.toggle('activa', S.vista === 'luz');
     $('#vista-pc').classList.toggle('activa', S.vista === 'pc');
+    $('#vista-usdt').classList.toggle('activa', S.vista === 'usdt');
     $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
     $('#vista-mini').classList.toggle('activa', S.vista === 'mini');
     $('#vista-agente-p')?.classList.toggle('activa', S.vista === 'agente-p');
@@ -958,6 +959,7 @@
     if (S.vista !== vista) entrarAVista(vista);
     pintarAprobaciones();
     if (vista === 'luz') pintarLuz();
+    else if (vista === 'usdt') pintarUsdt();
     else if (vista === 'agentes') pintarAgentes();
     else if (vista === 'mini') abrirMini();
     else if (vista === 'agente-p') abrirAgenteP();
@@ -1101,15 +1103,166 @@
     if (A.leida && !A.abierto) caja.appendChild(elemento('p', 'casa-nota', `Leído a las ${hora(A.leida)}. Solo se miran: desde aquí no se les manda nada.`));
   }
 
+  // ---------------------------------------------------------------- USDT
+  // Doof ya trae el precio, la brecha, la tendencia y los textos: aquí solo se pinta (y se escala la gráfica). El modo vigía es un interruptor:
+  // el aviso de caída llega como un mensaje más de Doof por el chat, así que no hay nada que escuchar aparte.
+  const REFRESCO_USDT_MS = 20000;
+  const U = { datos: null, falla: null, leida: null, cambiando: false, falloModo: null };
+
+  // 1045.5 -> "1.046" ; 16.43 con 1 decimal -> "16,4": punto de miles y coma decimal, como se escribe aquí.
+  function bs(n, dec = 0) {
+    const [entero, fraccion] = Math.abs(n).toFixed(dec).split('.');
+    return (n < 0 ? '-' : '') + entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (fraccion ? ',' + fraccion : '');
+  }
+  const conSigno = (n, dec = 1) => (n > 0 ? '+' : '') + bs(n, dec);
+
+  async function cargarUsdt() {
+    try {
+      U.datos = await api('/usdt', {}, TIEMPO_LUZ_MS);
+      U.falla = null;
+      U.leida = new Date();
+    } catch (e) {
+      if (e.status === 401) return;
+      U.datos = null;         // un precio viejo se leería como el de ahora
+      U.falla = e;
+    }
+    if (S.vista === 'usdt') pintarUsdt();
+  }
+
+  async function cambiarModoUsdt(activo) {
+    U.cambiando = true;
+    U.falloModo = null;
+    pintarUsdt();
+    try {
+      U.datos = await api('/usdt/modo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo }) }, TIEMPO_LUZ_MS);
+      U.falla = null;
+      U.leida = new Date();
+    } catch (e) {
+      if (e.status === 401) return;
+      U.falloModo = textoDeFalla(e);    // el interruptor queda como estaba: no se pinta un estado que no se confirmó
+    } finally {
+      U.cambiando = false;
+    }
+    if (S.vista === 'usdt') pintarUsdt();
+  }
+
+  function encabezadoUsdt() {
+    const d = U.datos;
+    if (U.falla) return encabezadoCasa('', 'No sé cómo está el USDT', textoDeFalla(U.falla));
+    if (!d) return encabezadoCasa('', 'Mirando el USDT…', '');
+    if (d.estado === 'sin_datos') return encabezadoCasa('', 'No veo el precio del USDT', d.error || 'Binance P2P no respondió.');
+    const p = d.precio;
+    const clase = d.tendencia.direccion === 'baja' ? 'mal' : d.tendencia.direccion === 'sube' ? 'bien' : '';
+    const brecha = p.brecha_pct === null ? 'Sin el BCV de hoy, no hay brecha.' : `Brecha de ${bs(p.brecha_pct, 1)} % sobre el BCV.`;
+    const viejo = d.estado === 'viejo' ? ` Dato de hace ${p.hace}: ahora no logro leer Binance.` : '';
+    return encabezadoCasa(clase, `${bs(p.usdt)} Bs`, brecha + viejo);
+  }
+
+  function nodoModoUsdt(d) {
+    const caja = elemento('div', 'usdt-modo');
+    const activo = d.modo.activo;
+    const boton = elemento('button', 'usdt-interruptor' + (activo ? ' activo' : ''));
+    boton.type = 'button';
+    boton.setAttribute('role', 'switch');
+    boton.setAttribute('aria-checked', String(activo));
+    boton.disabled = U.cambiando;
+    const texto = elemento('span', 'usdt-interruptor-texto');
+    texto.append(elemento('b', '', 'Vigía de caídas'), elemento('small', '', U.cambiando ? 'Un momento…' : activo ? `Activo${d.modo.desde ? ' desde ' + d.modo.desde : ''}` : 'Apagado'));
+    boton.append(texto, elemento('i', 'usdt-palanca'));
+    boton.addEventListener('click', () => cambiarModoUsdt(!activo));
+    caja.append(boton);
+    caja.append(elemento('p', 'casa-nota', activo
+      ? `Doof lee el precio cada 5 minutos y te avisa por Telegram y por aquí si el USDT cae ${bs(d.umbrales.caida_pct, 1)} % en una hora, o si la brecha con el BCV baja ${bs(d.umbrales.brecha_pp, 1)} puntos en 6 horas.`
+      : 'Apagado, Doof no lee nada en segundo plano ni te avisa. Aquí abajo ves el precio de ahora, pero sin historia.'));
+    if (U.falloModo) caja.append(elemento('p', 'casa-nota usdt-error', 'No pude cambiar el modo: ' + U.falloModo));
+    return caja;
+  }
+
+  function nodoTendenciaUsdt(t) {
+    const caja = elemento('div', 'usdt-tendencia');
+    caja.append(elemento('h3', 'casa-subtitulo', 'Hacia dónde va'));
+    caja.append(elemento('p', 'usdt-tendencia-texto', t.texto));
+    const c = t.cambios || {};
+    const filas = [['1 hora', c['1h']], ['6 horas', c['6h']], ['24 horas', c['24h']]]
+      .map(([nombre, v]) => [nombre, v === null || v === undefined ? '—' : `${conSigno(v, 2)} %`]);
+    caja.append(lecturas(filas));
+    if (t.confianza) caja.append(elemento('p', 'casa-nota', `Confianza de la estimación: ${t.confianza}. Sale de las últimas 3 horas de lecturas y no sabe nada de lo que haga el BCV.`));
+    return caja;
+  }
+
+  function nodoGraficaUsdt(puntos) {
+    const caja = elemento('div', 'usdt-grafica-caja');
+    if (!puntos || puntos.length < 2) {
+      caja.append(elemento('p', 'casa-nota', 'Todavía no hay lecturas guardadas para dibujar. Con el vigía activo se juntan solas.'));
+      return caja;
+    }
+    const NS = 'http://www.w3.org/2000/svg';
+    const W = 300, H = 90, P = 4;
+    const precios = puntos.map((p) => p.usdt);
+    const min = Math.min(...precios), max = Math.max(...precios);
+    const rango = Math.max(max - min, 1);
+    const viejo = Math.max(...puntos.map((p) => p.hace_min), 1);
+    const xy = (p) => [P + (1 - p.hace_min / viejo) * (W - 2 * P), P + (1 - (p.usdt - min) / rango) * (H - 2 * P)];
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('class', 'usdt-grafica');
+    svg.setAttribute('role', 'img');
+    const horas = viejo >= 90 ? `${Math.round(viejo / 60)} horas` : `${viejo} minutos`;
+    svg.setAttribute('aria-label', `Precio del USDT en las últimas ${horas}: entre ${bs(min)} y ${bs(max)} bolívares.`);
+    const linea = document.createElementNS(NS, 'polyline');
+    linea.setAttribute('points', puntos.map((p) => xy(p).map((v) => v.toFixed(1)).join(',')).join(' '));
+    svg.append(linea);
+    const [ux, uy] = xy(puntos[puntos.length - 1]);
+    const punto = document.createElementNS(NS, 'circle');
+    punto.setAttribute('cx', ux.toFixed(1));
+    punto.setAttribute('cy', uy.toFixed(1));
+    punto.setAttribute('r', '3');
+    svg.append(punto);
+    caja.append(elemento('h3', 'casa-subtitulo', `Últimas ${horas}`), svg, elemento('p', 'casa-nota', `Mínimo ${bs(min)} Bs · máximo ${bs(max)} Bs`));
+    return caja;
+  }
+
+  function pintarUsdt() {
+    const caja = $('#usdt-contenido');
+    caja.textContent = '';
+    caja.appendChild(encabezadoUsdt());
+    const d = U.datos;
+    if (!d) return;
+    if (d.estado !== 'sin_datos' && d.precio) {
+      const p = d.precio;
+      const sin = (v, dec = 0) => (v === null || v === undefined ? '—' : bs(v, dec));
+      // "Vender" solo si hay: los anuncios de compra de USDT alcanzables para una persona escasean (los mejor pagados piden mínimos de millones de Bs).
+      const pares = [['USDT', sin(p.usdt)], ['BCV', sin(p.bcv, 2)]];
+      if (p.venta !== null && p.venta !== undefined) pares.splice(1, 0, ['Vender', sin(p.venta)]);
+      caja.append(lecturas(pares));
+    }
+    caja.append(nodoModoUsdt(d));
+    if (d.tendencia) {
+      caja.append(nodoTendenciaUsdt(d.tendencia));
+      caja.append(nodoGraficaUsdt(d.grafica));
+    }
+    if (d.avisos?.length) {
+      caja.append(elemento('h3', 'casa-subtitulo', 'Últimos avisos'));
+      for (const a of d.avisos) {
+        const fila = elemento('div', 'usdt-aviso');
+        fila.append(elemento('small', '', a.cuando), elemento('p', '', a.texto));
+        caja.append(fila);
+      }
+    }
+    const partes = ['Precio de Binance P2P (mediana de los mejores anuncios con USDT de sobra y vendedores confiables), contra la tasa oficial del BCV.'];
+    if (U.leida) partes.push(`Leído a las ${hora(U.leida)}.`);
+    caja.append(elemento('p', 'casa-nota', partes.join(' ')));
+  }
+
   // ---------------------------------------------------------------- luz y PC
   // Todo llega resuelto de Doof: aquí no se decide si hay luz ni se calcula nada, solo se pinta.
   async function refrescarSeccion() {
     const turno = ++S.turnoSeccion;
     const vista = S.vista;
-    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes') return;
-    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'agentes' ? cargarAgentes() : cargarPc());
+    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes' && vista !== 'usdt') return;
+    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'agentes' ? cargarAgentes() : vista === 'usdt' ? cargarUsdt() : cargarPc());
     if (turno !== S.turnoSeccion || S.vista !== vista) return;
-    await pausa(vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : REFRESCO_PC_MS);
+    await pausa(vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : REFRESCO_PC_MS);
     if (turno === S.turnoSeccion) refrescarSeccion();
   }
 

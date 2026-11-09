@@ -2947,6 +2947,8 @@
       if (destino) irASeccion(destino);
     });
     $('#menu-salir').addEventListener('click', cerrarSesion);
+    $('#menu-avisos').addEventListener('click', alternarAvisos);
+    pintarAvisos();
 
     document.addEventListener('paste', (e) => {
       const item = Array.from(e.clipboardData?.items || []).find(i => i.kind === 'file');
@@ -2991,6 +2993,54 @@
       S.instalable = null;
       boton.hidden = true;
     };
+  }
+
+  // ---------------------------------------------------------------- avisos con la app cerrada (Web Push)
+  // El navegador pide la llave pública de Doof, crea la suscripción y la app se la entrega al bot, que desde entonces empuja los avisos
+  // de los vigías (examen nuevo, luz, USDT, agentes). Si la entrega falla, la suscripción se deshace: una a medias nunca recibiría nada.
+  const bytesDeBase64Url = (texto) => b64(texto.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - texto.length % 4) % 4));
+
+  async function pintarAvisos() {
+    const boton = $('#menu-avisos');
+    if (!boton) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) { boton.hidden = true; return; }
+    boton.hidden = false;
+    if (Notification.permission === 'denied') {
+      boton.textContent = 'Avisos bloqueados: permítelos en los ajustes del navegador';
+      boton.disabled = true;
+      return;
+    }
+    let activa = null;
+    try { activa = await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch (e) { /* sin service worker todavía */ }
+    boton.disabled = false;
+    boton.textContent = activa ? 'Avisos activados · toca para desactivarlos' : 'Activar avisos en este teléfono';
+  }
+
+  async function alternarAvisos() {
+    const boton = $('#menu-avisos');
+    boton.disabled = true;
+    let nueva = null;
+    try {
+      const registro = await navigator.serviceWorker.ready;
+      const actual = await registro.pushManager.getSubscription();
+      if (actual) {
+        await api('/push/desuscribir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: actual.endpoint }) }).catch(() => {});
+        await actual.unsubscribe();
+        avisar('Avisos desactivados.');
+      } else {
+        if (await Notification.requestPermission() !== 'granted') { avisar('Sin permiso no te puedo avisar.'); return; }
+        const { clave } = await api('/push/clave');
+        nueva = await registro.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesDeBase64Url(clave) });
+        await api('/push/suscribir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ suscripcion: nueva.toJSON() }) });
+        nueva = null;
+        avisar('Listo: te aviso aunque la app esté cerrada.');
+      }
+    } catch (e) {
+      if (nueva) await nueva.unsubscribe().catch(() => {});
+      avisar(e.sinRed ? 'No alcancé a la PC. Intenta de nuevo.' : 'No pude activar los avisos: ' + e.message);
+    } finally {
+      pintarAvisos();
+    }
   }
 
   // Dos toques: cerrar sesión borra el token y la dirección guardados, y no se debe poder hacer sin querer.

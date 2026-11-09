@@ -53,7 +53,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.07';
+  const VERSION = '2026.11.09';       // se ve al pie del menú: sirve para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');

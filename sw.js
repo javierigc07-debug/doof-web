@@ -3,7 +3,7 @@
    servir de una copia vieja, y por ella viaja el token, y la app ya sabe mostrar "PC sin conexión" sola.
    El bloque de push queda listo para la fase 3 (avisos con la app cerrada). */
 
-const VERSION = 'doofapp-v23';
+const VERSION = 'doofapp-v24';
 // Con mala señal el HTML no debe esperar a que el fetch falle solo: pasado este tiempo se abre la copia guardada.
 const ESPERA_RED_NAVEGACION_MS = 2500;
 const CASCARON = [
@@ -19,7 +19,13 @@ const CASCARON = [
 
 self.addEventListener('install', (evento) => {
   evento.waitUntil(
-    caches.open(VERSION).then((cache) => cache.addAll(CASCARON)).then(() => self.skipWaiting())
+    // `cache: 'reload'` salta la caché HTTP: GitHub Pages sirve con max-age de 10 min, y con addAll a secas una versión nueva podía guardar el app.js VIEJO
+    // (9 nov 2026: un teléfono se quedó con el botón de avisos de la versión anterior pese a haber publicado dos versiones después).
+    caches.open(VERSION).then((cache) => Promise.all(CASCARON.map((ruta) =>
+      fetch(new Request(ruta, { cache: 'reload' })).then((respuesta) => {
+        if (!respuesta.ok) throw new Error('no pude bajar ' + ruta);
+        return cache.put(ruta, respuesta);
+      })))).then(() => self.skipWaiting())
   );
 });
 
@@ -51,7 +57,7 @@ self.addEventListener('fetch', (evento) => {
 
   evento.respondWith(
     caches.match(pedido).then((cacheado) => {
-      const red = fetch(pedido)
+      const red = fetch(new Request(pedido, { cache: 'no-cache' }))      // revalida con el servidor (304 si no cambió) en vez de fiarse de la caché HTTP
         .then((respuesta) => {
           if (respuesta && respuesta.ok) {
             const copia = respuesta.clone();

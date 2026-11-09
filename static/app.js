@@ -3013,7 +3013,8 @@
     let activa = null;
     try { activa = await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch (e) { /* sin service worker todavía */ }
     boton.disabled = false;
-    boton.textContent = activa ? 'Avisos activados · toca para desactivarlos' : 'Activar avisos en este teléfono';
+    boton.hidden = !!activa;        // con los avisos ya activos el botón no tiene qué ofrecer, igual que "Instalar" una vez instalada
+    boton.textContent = 'Activar avisos en este teléfono';
   }
 
   async function alternarAvisos() {

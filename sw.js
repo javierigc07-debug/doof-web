@@ -3,15 +3,15 @@
    servir de una copia vieja, y por ella viaja el token, y la app ya sabe mostrar "PC sin conexión" sola.
    El bloque de push queda listo para la fase 3 (avisos con la app cerrada). */
 
-const VERSION = 'doofapp-v24';
+const VERSION = 'doofapp-f5e9e51303';
 // Con mala señal el HTML no debe esperar a que el fetch falle solo: pasado este tiempo se abre la copia guardada.
 const ESPERA_RED_NAVEGACION_MS = 2500;
 const CASCARON = [
   './',
   'manifest.webmanifest',
-  'static/app.css',
-  'static/app.js',
-  'static/mini_doof.js',
+  'static/app.css?v=f5e9e51303',
+  'static/app.js?v=f5e9e51303',
+  'static/mini_doof.js?v=f5e9e51303',
   'static/iconos/ojo.svg',
   'static/iconos/icono-192.png',
   'static/iconos/icono-512.png',
@@ -48,7 +48,7 @@ self.addEventListener('fetch', (evento) => {
   if (pedido.mode === 'navigate') {
     evento.respondWith(
       Promise.race([
-        fetch(pedido),
+        fetch(pedido.url, { cache: 'no-cache', credentials: 'same-origin' }),     // el HTML manda: de él salen los ?v= de los demás archivos
         new Promise((_, rechazar) => setTimeout(() => rechazar(new Error('lenta')), ESPERA_RED_NAVEGACION_MS)),
       ]).catch(() => caches.match('./').then((copia) => copia || fetch(pedido)))
     );

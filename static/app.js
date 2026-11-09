@@ -53,7 +53,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.09';       // se ve al pie del menú: sirve para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.09-f5e9e51303';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -3121,11 +3121,26 @@
     location.reload();
   }
 
+  // Una versión nueva se baja sola, pero la página abierta sigue con el código viejo hasta recargar: el menú ofrece actualizar con un toque, y la
+  // app busca versiones nuevas cada vez que vuelve a primer plano (antes había que cerrarla y abrirla dos veces).
   function registrarSW() {
     if (!('serviceWorker' in navigator)) return;
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+    let registro = null;
+    const habiaControlador = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!habiaControlador) return;          // la primera instalación no es una actualización
+      const boton = $('#menu-actualizar');
+      if (boton) boton.hidden = false;
+      avisar('Hay una versión nueva de la app', 'Actualizar', () => location.reload());
     });
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').then((r) => { registro = r; }).catch(() => {});
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && registro) registro.update().catch(() => {});
+    });
+    const actualizar = $('#menu-actualizar');
+    if (actualizar) actualizar.addEventListener('click', () => location.reload());
   }
 
   // ---------------------------------------------------------------- copiar / avisar

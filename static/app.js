@@ -330,7 +330,7 @@
     if (ES_REMOTO && !S.base) return 'sin-red';
     if (!ligera && !S.sinArranque) {
       try {
-        const d = await api('/arranque', {}, ms, true);
+        const d = await api('/arranque' + (leerGuardado('doof_conv') ? '?conv=' + encodeURIComponent(leerGuardado('doof_conv')) : ''), {}, ms, true);
         S.arranque = d;
         S.salud = !!d.hud;
         return 'ok';
@@ -403,24 +403,29 @@
     if (!d) {
       // Puente sin /arranque: lo mismo, pero en paralelo y no en fila.
       const sinSerFatal = (e) => { if (e.status === 401) throw e; return null; };
+      const convGuardada = leerGuardado('doof_conv');
       const [nov, ses, conv, apr, hue] = await Promise.all([
         api('/novedades?desde=-1', {}, 15000),
-        api('/sesion').catch(sinSerFatal),
+        convGuardada ? api('/conversaciones/' + encodeURIComponent(convGuardada)).catch(sinSerFatal) : Promise.resolve(null),
         api('/conversaciones').catch(sinSerFatal),
         api('/aprobaciones').catch(sinSerFatal),
         api('/huella').catch(sinSerFatal),
       ]);
-      d = { ciclo: nov.ciclo, ultimo: nov.ultimo, sesion: ses, conversaciones: conv, aprobaciones: apr, huella: hue };
+      d = { ciclo: nov.ciclo, ultimo: nov.ultimo, sesion: ses, sesion_id: ses ? convGuardada : null, conversaciones: conv, aprobaciones: apr, huella: hue };
     }
     // Tras una caída breve el cursor sigue valiendo y /novedades entrega lo perdido. Solo se recarga todo si el puente reinició.
     if (d.ciclo !== S.ciclo || !S.cargado) {
       S.ciclo = d.ciclo;
       S.cursor = d.ultimo;
-      if (d.sesion) {
-        S.sesion = d.sesion.sesion_id;
+      if (d.sesion && d.sesion_id) {
+        S.sesion = d.sesion_id;
         S.mensajes = (d.sesion.mensajes || []).map(normalizarMensaje).slice(-MAX_MENSAJES);
+      } else if (d.hud !== false && Array.isArray(d.conversaciones) && leerGuardado('doof_conv')) {
+        // El chat que recordaba ya no existe (se borró o se podó): se parte de uno nuevo, que se crea al escribir.
+        S.sesion = null;
+        guardar('doof_conv', '');
       }
-      S.cargado = true;           // sin sesión es el HUD caído: la app igual abre, en modo sin conexión
+      S.cargado = true;           // sin sesión es un chat nuevo, o el HUD caído: la app igual abre, en modo sin conexión
       S.evitarRepetidos = true;     // lo que llegó entre el cursor y la sesión vendría dos veces
       pintarMensajes();
     }
@@ -2280,7 +2285,7 @@
     const titulo = document.createElement('b');
     titulo.textContent = c.adelanto || '(sin mensajes)';
     const meta = document.createElement('small');
-    meta.textContent = fechaCorta(c.inicio) + ' · ' + c.cantidad + (c.cantidad === 1 ? ' mensaje' : ' mensajes');
+    meta.textContent = fechaCorta(c.inicio) + ' · ' + c.cantidad + (c.cantidad === 1 ? ' mensaje' : ' mensajes') + (c.origen === 'app' ? '' : ' · Telegram y avisos');
     texto.append(titulo, meta);
     const flecha = document.createElement('span');
     flecha.className = 'flecha';
@@ -2320,20 +2325,41 @@
     };
   }
 
+  // Vuelve al chat propio de la app (cada uno tiene su historial para el modelo). Sin chat recordado, o si ya no existe, queda uno nuevo vacío.
   async function cargarSesion() {
+    const id = S.sesion || leerGuardado('doof_conv');
+    S.sesion = null;
+    S.mensajes = [];
     try {
-      const d = await api('/sesion');
-      S.sesion = d.sesion_id;
-      S.mensajes = (d.mensajes || []).map(normalizarMensaje).slice(-MAX_MENSAJES);
+      if (id) {
+        const d = await api('/conversaciones/' + encodeURIComponent(id));
+        S.sesion = id;
+        S.mensajes = (d.mensajes || []).map(normalizarMensaje).slice(-MAX_MENSAJES);
+      }
       S.cargado = true;
     } catch (e) {
       if (e.status === 401) throw e;
+      if (e.status === 404) guardar('doof_conv', '');
       S.cargado = true;   // HUD caído: la app igual abre, en modo sin conexión
     }
   }
 
+  function adoptarConversacion(id) {
+    if (!id || id === S.sesion) return;
+    S.sesion = id;
+    guardar('doof_conv', id);
+  }
+
   function recibir(datos) {
     const m = normalizarMensaje(datos);
+    // Cada chat de la app tiene su historial: lo etiquetado con otro chat no se pinta aquí, y lo que no trae etiqueta (Telegram, los avisos de los
+    // vigías) vive en el historial como "Telegram y avisos", no dentro de este chat. Un chat nuevo adopta el id del primer mensaje que mande.
+    if (datos.conv && !S.sesion && S.adoptando) adoptarConversacion(datos.conv);
+    if (datos.conv ? datos.conv !== S.sesion : true) {
+      if (m.rol === 'bot' && !S.soloLectura) avisar('Doof: ' + (m.texto || 'te mandó un archivo').slice(0, 90), 'Ver', () => abrirHoja('hoja-historial'));
+      programarRefrescoConversaciones();
+      return;
+    }
     if (S.evitarRepetidos && S.mensajes.slice(-5).some((x) => x.rol === m.rol && normalizar(x.texto) === normalizar(m.texto))) return;
     if (S.soloLectura) {
       // Estás leyendo un archivo: lo que llega en vivo es de la conversación activa, no de esta.
@@ -2573,18 +2599,24 @@
     pintarMensajes();
     alFinal(false);
 
+    S.adoptando = !S.sesion;
     try {
-      await api('/mensaje', {
+      const r = await api('/mensaje', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ texto }),
+        body: JSON.stringify(S.sesion ? { texto, conversacion: S.sesion } : { texto }),
       });
+      adoptarConversacion(r.conversacion);
+      programarRefrescoConversaciones();
     } catch (e) {
       optimista.pendiente = false;
       optimista.error = true;
       S.esperando = false;
+      if (e.status === 404) { S.sesion = null; guardar('doof_conv', ''); }      // ese chat ya no existe: el próximo mensaje abre uno nuevo
       pintarMensajes();
-      avisar('No pude mandarlo: ' + e.message);
+      avisar(e.status === 404 ? 'Ese chat ya no existe. Escríbelo de nuevo y abro uno nuevo.' : 'No pude mandarlo: ' + e.message);
+    } finally {
+      S.adoptando = false;
     }
   }
 
@@ -2607,16 +2639,21 @@
     const datos = new FormData();
     datos.append('archivo', archivo, archivo.name);
     datos.append('caption', caption || '');
+    if (S.sesion) datos.append('conversacion', S.sesion);
+    S.adoptando = !S.sesion;
 
     try {
-      await api('/archivo', { method: 'POST', body: datos }, 180000);
+      const r = await api('/archivo', { method: 'POST', body: datos }, 180000);
+      adoptarConversacion(r.conversacion);
     } catch (e) {
       optimista.pendiente = false;
       optimista.error = true;
       S.esperando = false;
+      if (e.status === 404) { S.sesion = null; guardar('doof_conv', ''); }
       pintarMensajes();
       avisar('No pude subir el archivo: ' + e.message);
     } finally {
+      S.adoptando = false;
       setTimeout(() => { if (local.url) URL.revokeObjectURL(local.url); }, 60000);
     }
   }
@@ -2694,6 +2731,7 @@
     document.body.classList.add('con-hoja');
     if (id === 'hoja-historial') {
       pintarHistorial();
+      cargarConversaciones();         // la lista pudo quedar vieja: el refresco tras cada mensaje espera 1,6 s y se abre más rápido que eso
       setTimeout(() => $('#buscar').focus(), 250);
     }
     if (id === 'hoja-menu') {
@@ -2756,17 +2794,47 @@
       etiqueta.className = 'grupo';
       etiqueta.textContent = nombre;
       caja.appendChild(etiqueta);
-      for (const c of items) caja.appendChild(filaConversacion(c, true));
+      for (const c of items) caja.appendChild(c.origen === 'app' ? filaConBorrar(c) : filaConversacion(c, true));
     }
+  }
+
+  // Dos toques para borrar un chat de la app y su historial para el modelo: no se debe poder hacer sin querer. Las memorias de Doof no se tocan.
+  function filaConBorrar(c) {
+    const caja = document.createElement('div');
+    caja.className = 'fila-con-borrar';
+    const borrar = document.createElement('button');
+    borrar.type = 'button';
+    borrar.className = 'fila-borrar';
+    borrar.setAttribute('aria-label', 'Borrar este chat');
+    borrar.textContent = '✕';
+    borrar.addEventListener('click', async () => {
+      if (!borrar.classList.contains('confirmar')) {
+        borrar.classList.add('confirmar');
+        borrar.textContent = 'Borrar';
+        setTimeout(() => { borrar.classList.remove('confirmar'); borrar.textContent = '✕'; }, 3500);
+        return;
+      }
+      try {
+        await api('/conversaciones/' + encodeURIComponent(c.id) + '/borrar', { method: 'POST' });
+        if (c.id === S.sesion) { S.sesion = null; guardar('doof_conv', ''); S.mensajes = []; pintarMensajes(); pintarInicio(); }
+        await cargarConversaciones();
+      } catch (e) {
+        avisar('No pude borrarlo: ' + e.message);
+      }
+    });
+    caja.append(filaConversacion(c, true), borrar);
+    return caja;
   }
 
   async function verConversacion(id) {
     try {
       const d = await api('/conversaciones/' + encodeURIComponent(id));
-      S.soloLectura = true;
+      const esDeLaApp = d.origen === 'app';      // las del HUD y de Telegram comparten historial: solo se leen
+      S.soloLectura = !esDeLaApp;
       S.esperando = false;
-      S.inicioVista = d.inicio;
-      S.sesionVista = id;
+      S.inicioVista = esDeLaApp ? null : d.inicio;
+      S.sesionVista = esDeLaApp ? null : id;
+      if (esDeLaApp) adoptarConversacion(id);
       S.mensajes = (d.mensajes || []).map(normalizarMensaje).slice(-MAX_MENSAJES);
       cerrarHojas();
       irAChat();
@@ -2778,13 +2846,8 @@
   }
 
   async function nuevaConversacion(irInicio = true) {
-    try {
-      const d = await api('/sesion/nueva', { method: 'POST' });
-      S.sesion = d.sesion_id;
-    } catch (e) {
-      avisar('No pude abrir una conversación nueva: ' + e.message);
-      return;
-    }
+    S.sesion = null;           // el chat nace en el servidor con el primer mensaje: no quedan chats vacíos
+    guardar('doof_conv', '');
     S.mensajes = [];
     S.soloLectura = false;
     S.esperando = false;

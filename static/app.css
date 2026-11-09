@@ -1192,3 +1192,10 @@ body[data-vista="agente-p"] #compositor {
   border-color: var(--acento-p);
   box-shadow: 0 0 0 1px var(--acento-p);
 }
+
+/* Chats separados: la fila de un chat de la app lleva al lado su botón de borrar (dos toques). */
+.fila-con-borrar { display: flex; align-items: stretch; gap: 6px; }
+.fila-con-borrar > .fila { flex: 1; min-width: 0; }
+.fila-borrar { min-width: 48px; border: 1px solid var(--borde); border-radius: var(--r-m); background: transparent; color: var(--texto-2); font-size: 14px; }
+.fila-borrar:active { background: var(--superficie); }
+.fila-borrar.confirmar { color: var(--rojo); border-color: currentColor; }

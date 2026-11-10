@@ -16,7 +16,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="static/iconos/ojo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="static/iconos/icono-192.png">
-  <link rel="stylesheet" href="static/app.css?v=11a819280c">
+  <link rel="stylesheet" href="static/app.css?v=a7b54fa599">
 </head>
 <body>
 
@@ -139,6 +139,18 @@
 
     <section id="vista-usdt" class="vista seccion-casa">
       <div id="usdt-contenido" aria-live="polite"></div>
+    </section>
+
+    <section id="vista-novedades" class="vista seccion-casa">
+      <div id="novedades-contenido" aria-live="polite"></div>
+      <h3 class="casa-subtitulo">Repos que vigilo</h3>
+      <div id="novedades-fuentes"></div>
+      <form id="novedades-form" class="novedades-form" autocomplete="off">
+        <input id="novedades-repo" type="text" inputmode="url" placeholder="github.com/dueño/repo" enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Repo de GitHub a vigilar">
+        <button id="novedades-agregar" class="novedades-agregar" type="submit">Vigilar</button>
+      </form>
+      <p id="novedades-error" class="casa-nota usdt-error" hidden></p>
+      <p class="casa-nota">Doof mira cada 30 minutos si salió una versión nueva y te avisa al teléfono. Al tocar una novedad se abre un chat que parte de ella: ya leyó las notas, los commits y el README, y si preguntas algo más, va a GitHub a buscarlo.</p>
     </section>
 
     <section id="vista-pc" class="vista seccion-casa">
@@ -279,6 +291,11 @@
       </div>
       <div class="menu-grupo" role="group" aria-labelledby="mg-herr">
         <p class="menu-etiqueta" id="mg-herr">Herramientas</p>
+        <button class="fila" data-destino="novedades">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M4 5h13a2 2 0 012 2v12H6a2 2 0 01-2-2zM19 9h1a1 1 0 011 1v7a2 2 0 01-2 2M8 9h7M8 13h7"/></svg></span>
+          <span class="fila-texto"><b>Novedades</b><small>Versiones nuevas de los repos que sigo</small></span>
+          <span id="novedades-insignia" class="fila-insignia" hidden></span>
+        </button>
         <button class="fila" data-destino="usdt">
           <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></span>
           <span class="fila-texto"><b>USDT</b><small>Precio, brecha y aviso de caída</small></span>
@@ -403,7 +420,7 @@
 <input type="file" id="archivo-galeria" accept="image/*" hidden>
 <input type="file" id="archivo-general" hidden>
 
-<script src="static/mini_doof.js?v=11a819280c" defer></script>
-<script src="static/app.js?v=11a819280c" defer></script>
+<script src="static/mini_doof.js?v=a7b54fa599" defer></script>
+<script src="static/app.js?v=a7b54fa599" defer></script>
 </body>
 </html>

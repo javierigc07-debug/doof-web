@@ -850,8 +850,8 @@ body.con-aprobacion .aviso { top: calc(64px + env(safe-area-inset-top)); bottom:
 .menu-lista .fila.actual .fila-icono { color: var(--acento-claro); }
 
 /* ---------------------------------------------------------------- secciones de la casa */
-body[data-vista="luz"] #barra, body[data-vista="pc"] #barra, body[data-vista="agentes"] #barra, body[data-vista="usdt"] #barra { border-bottom-color: var(--borde-suave); }
-body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data-vista="agentes"] #compositor, body[data-vista="usdt"] #compositor { display: none; }
+body[data-vista="luz"] #barra, body[data-vista="pc"] #barra, body[data-vista="agentes"] #barra, body[data-vista="usdt"] #barra, body[data-vista="novedades"] #barra { border-bottom-color: var(--borde-suave); }
+body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data-vista="agentes"] #compositor, body[data-vista="usdt"] #compositor, body[data-vista="novedades"] #compositor { display: none; }
 .seccion-casa { padding: 18px 18px calc(28px + env(safe-area-inset-bottom)); }
 
 .casa { display: grid; grid-template-columns: 12px 1fr; column-gap: 12px; align-items: baseline; }
@@ -911,6 +911,33 @@ body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data
 .usdt-aviso small { font-size: 12px; color: var(--tenue); }
 .usdt-aviso p { margin: 3px 0 0; font-size: 14px; line-height: 1.45; color: var(--texto-2); }
 @media (prefers-reduced-motion: reduce) { .usdt-palanca, .usdt-palanca::after { transition: none; } }
+
+/* ---- sección Novedades ---- */
+.novedades-lista { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+.novedad-fila { position: relative; display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 12px 14px 12px 28px; text-align: left; font: inherit; color: inherit;
+  background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--r-m); cursor: pointer; }
+.novedad-fila:disabled { opacity: .65; cursor: default; }
+.novedad-fila:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+.novedad-fila.sin-leer { border-color: rgba(91, 140, 255, .55); background: var(--superficie-2); }
+.novedad-fila.sin-leer::before { content: ""; position: absolute; left: 12px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: var(--acento); }
+.novedad-fila small { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.novedad-fila b { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.novedad-fila b em { margin-left: 6px; font-style: normal; font-size: 11.5px; font-weight: 500; color: var(--ambar); }
+.novedad-fila p { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--texto-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.novedad-fila .novedad-estado { color: var(--acento-claro); }
+.novedades-fuente { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--borde-suave); }
+.novedades-fuente div { display: flex; flex-direction: column; min-width: 0; }
+.novedades-fuente b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.novedades-fuente small { font-size: 12px; color: var(--tenue); }
+.novedades-fuente small.mal { color: var(--rojo-claro); }
+.novedades-quitar { flex: none; min-height: 36px; padding: 0 12px; font: inherit; font-size: 13px; color: var(--muted); background: none; border: 1px solid var(--borde); border-radius: var(--r-s); cursor: pointer; }
+.novedades-quitar.seguro { color: var(--rojo-claro); border-color: var(--rojo-claro); }
+.novedades-form { display: flex; gap: 8px; margin-top: 14px; }
+.novedades-form input { flex: 1; min-width: 0; min-height: 44px; padding: 0 14px; font: inherit; font-size: 16px; color: var(--texto); background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--r-m); }
+.novedades-form input:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px; }
+.novedades-agregar { flex: none; min-height: 44px; padding: 0 18px; font: inherit; font-weight: 600; color: var(--sobre-acento); background: var(--acento); border: 0; border-radius: var(--r-m); cursor: pointer; }
+.novedades-agregar:disabled { opacity: .6; cursor: default; }
+.fila-insignia { flex: none; margin-left: auto; min-width: 22px; padding: 2px 7px; border-radius: 999px; font-size: 12px; font-weight: 600; text-align: center; color: var(--sobre-acento); background: var(--acento); }
 
 /* ---- sección Agentes (solo lectura) ---- */
 .agentes-lista { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }

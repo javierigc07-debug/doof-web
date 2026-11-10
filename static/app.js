@@ -53,7 +53,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.09-11a819280c';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.10-a7b54fa599';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -84,7 +84,7 @@
   const ESPERA_ABRIR_MINI_MS = 15000;
   const CERRAR_MINI_AL_OCULTAR_MS = 5 * 60 * 1000;
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', novedades: 'Novedades', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -440,10 +440,15 @@
     if (!S.enlaceInicialVisto) {
       S.enlaceInicialVisto = true;
       // Deep link desde una notificación: ?sesion=<id> abre ese archivo.
-      const sesion = new URLSearchParams(location.search).get('sesion');
+      const params = new URLSearchParams(location.search);
+      const sesion = params.get('sesion');
+      const novedad = params.get('novedad');      // el push de una novedad: abre (o crea) el chat que parte de ella
       if (sesion) {
         history.replaceState(history.state, '', location.pathname);
         verConversacion(sesion);
+      } else if (novedad && /^[0-9a-f]{12}$/.test(novedad)) {
+        history.replaceState(history.state, '', location.pathname);
+        abrirNovedad(novedad);
       }
     }
   }
@@ -861,6 +866,7 @@
     $('#vista-luz').classList.toggle('activa', S.vista === 'luz');
     $('#vista-pc').classList.toggle('activa', S.vista === 'pc');
     $('#vista-usdt').classList.toggle('activa', S.vista === 'usdt');
+    $('#vista-novedades').classList.toggle('activa', S.vista === 'novedades');
     $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
     $('#vista-mini').classList.toggle('activa', S.vista === 'mini');
     $('#vista-agente-p')?.classList.toggle('activa', S.vista === 'agente-p');
@@ -997,6 +1003,7 @@
     pintarAprobaciones();
     if (vista === 'luz') pintarLuz();
     else if (vista === 'usdt') pintarUsdt();
+    else if (vista === 'novedades') pintarNovedades();
     else if (vista === 'agentes') pintarAgentes();
     else if (vista === 'mini') abrirMini();
     else if (vista === 'agente-p') abrirAgenteP();
@@ -1391,15 +1398,158 @@
     caja.append(elemento('p', 'casa-nota', partes.join(' ')));
   }
 
+  // ---------------------------------------------------------------- Novedades
+  // El feed de releases de GitHub que Doof vigila. Todo llega resuelto (títulos, resúmenes, "hace 3 h"): aquí solo se pinta. Tocar una novedad le pide al
+  // HUD el chat de esa novedad (lo crea sembrado con el resumen de Doof, o devuelve el que ya existe) y lo abre como cualquier otro chat de la app.
+  // Los textos vienen de GitHub (terceros): siempre con textContent, nunca como HTML.
+  const REFRESCO_NOVEDADES_MS = 45000;
+  const TIEMPO_ABRIR_NOVEDAD_MS = 70000;       // abrir una por primera vez puede armar su dossier (lecturas de GitHub y una llamada al modelo)
+  const N = { datos: null, falla: null, abriendo: null, agregando: false, quitando: null, temporizadorQuitar: null };
+
+  function pintarInsigniaNovedades() {
+    const n = N.datos?.no_leidas || 0;
+    const insignia = $('#novedades-insignia');
+    insignia.hidden = n === 0;
+    insignia.textContent = String(n);
+  }
+
+  async function cargarNoticias() {
+    try {
+      N.datos = await api('/noticias', {}, TIEMPO_LUZ_MS);
+      N.falla = null;
+    } catch (e) {
+      if (e.status === 401) return;
+      N.falla = e;          // el feed anterior se queda: son noticias, no un dato que caduque en segundos
+    }
+    pintarInsigniaNovedades();
+    if (S.vista === 'novedades') pintarNovedades();
+  }
+
+  function encabezadoNovedades() {
+    const d = N.datos;
+    if (!d) return N.falla ? encabezadoCasa('', 'No llego a las novedades', textoDeFalla(N.falla)) : encabezadoCasa('', 'Buscando novedades…', '');
+    const n = d.no_leidas;
+    const vigilo = d.fuentes.length === 1 ? 'Vigilo 1 repo.' : `Vigilo ${d.fuentes.length} repos.`;
+    if (!d.items.length) {
+      return encabezadoCasa('', 'Nada por ahora', d.fuentes.length ? 'Te aviso al teléfono cuando salga una versión nueva.' : 'Agrega un repo de GitHub aquí abajo y empiezo a vigilarlo.');
+    }
+    return encabezadoCasa(n ? 'bien' : '', n ? (n === 1 ? '1 novedad sin leer' : `${n} novedades sin leer`) : 'Estás al día', vigilo);
+  }
+
+  function filaNovedad(it) {
+    const boton = elemento('button', 'novedad-fila' + (it.leida ? '' : ' sin-leer'));
+    boton.type = 'button';
+    boton.disabled = N.abriendo !== null;
+    const titulo = elemento('b', '', it.tag || it.titulo);
+    if (it.prerelease) titulo.append(elemento('em', '', 'pre-release'));
+    boton.append(elemento('small', '', `${it.repo} · ${it.hace}`), titulo);
+    if (it.resumen) boton.append(elemento('p', '', it.resumen));
+    if (N.abriendo === it.id) boton.append(elemento('small', 'novedad-estado', 'Doof está leyendo todo esto…'));
+    else if (it.con_chat) boton.append(elemento('small', 'novedad-estado', 'Seguir la conversación'));
+    boton.addEventListener('click', () => abrirNovedad(it.id));
+    return boton;
+  }
+
+  function filaFuente(f) {
+    const fila = elemento('div', 'novedades-fuente');
+    const texto = elemento('div');
+    texto.append(elemento('b', '', f.repo));
+    texto.append(f.error ? elemento('small', 'mal', 'No pude revisarlo: ' + f.error)
+      : elemento('small', '', `${f.tag ? 'Última: ' + f.tag + ' · ' : ''}revisado ${f.revisada}`));
+    const seguro = N.quitando === f.repo;
+    const quitar = elemento('button', 'novedades-quitar' + (seguro ? ' seguro' : ''), seguro ? 'Confirmar' : 'Quitar');
+    quitar.type = 'button';
+    quitar.setAttribute('aria-label', (seguro ? 'Confirmar: dejar de vigilar ' : 'Dejar de vigilar ') + f.repo);
+    quitar.addEventListener('click', () => {
+      if (N.quitando === f.repo) { clearTimeout(N.temporizadorQuitar); N.quitando = null; cambiarFuente('quitar', f.repo); return; }
+      N.quitando = f.repo;                                  // dos toques: quitar borra también sus novedades sin chat
+      clearTimeout(N.temporizadorQuitar);
+      N.temporizadorQuitar = setTimeout(() => { N.quitando = null; if (S.vista === 'novedades') pintarNovedades(); }, 4000);
+      pintarNovedades();
+    });
+    fila.append(texto, quitar);
+    return fila;
+  }
+
+  function pintarNovedades() {
+    const caja = $('#novedades-contenido');
+    caja.textContent = '';
+    caja.appendChild(encabezadoNovedades());
+    const d = N.datos;
+    if (d?.items.length) {
+      const lista = elemento('div', 'novedades-lista');
+      for (const it of d.items) lista.append(filaNovedad(it));
+      caja.append(lista);
+    }
+    if (N.datos && N.falla) caja.append(elemento('p', 'casa-nota usdt-error', 'No pude actualizar ahora: ' + textoDeFalla(N.falla)));
+    const fuentes = $('#novedades-fuentes');
+    fuentes.textContent = '';
+    if (d?.fuentes.length) for (const f of d.fuentes) fuentes.append(filaFuente(f));
+    else fuentes.append(elemento('p', 'casa-nota', 'Todavía ninguno. Pega la URL de un repo de GitHub (por ejemplo, el de sus releases) y toca Vigilar. También puedes pedírselo a Doof por el chat.'));
+    $('#novedades-agregar').disabled = N.agregando;
+    $('#novedades-agregar').textContent = N.agregando ? 'Mirando…' : 'Vigilar';
+  }
+
+  async function cambiarFuente(accion, repo) {
+    const error = $('#novedades-error');
+    error.hidden = true;
+    N.agregando = accion === 'agregar';
+    pintarNovedades();
+    try {
+      const r = await api('/noticias/fuentes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion, repo }) }, TIEMPO_ABRIR_NOVEDAD_MS);
+      N.datos = r.panel;
+      N.falla = null;
+      if (accion === 'agregar') {
+        $('#novedades-repo').value = '';
+        avisar(r.tag ? `Listo: vigilo ${r.repo}. Su última versión es la ${r.tag}.` : `Listo: vigilo ${r.repo}. Aún no tiene versiones publicadas.`);
+      } else {
+        avisar(`Ya no vigilo ${r.repo}.`);
+      }
+    } catch (e) {
+      if (e.status === 401) return;
+      error.textContent = textoDeFalla(e);
+      error.hidden = false;
+    } finally {
+      N.agregando = false;
+    }
+    pintarInsigniaNovedades();
+    if (S.vista === 'novedades') pintarNovedades();
+  }
+
+  async function abrirNovedad(id) {
+    if (N.abriendo) return;
+    N.abriendo = id;
+    if (S.vista === 'novedades') pintarNovedades();
+    try {
+      const r = await api('/noticias/' + encodeURIComponent(id) + '/chat', { method: 'POST' }, TIEMPO_ABRIR_NOVEDAD_MS);
+      const it = N.datos?.items.find((i) => i.id === id);
+      if (it) {
+        if (!it.leida && N.datos.no_leidas > 0) N.datos.no_leidas -= 1;
+        it.leida = true;
+        it.con_chat = true;
+      }
+      pintarInsigniaNovedades();
+      await verConversacion(r.conv);
+      cargarConversaciones();         // el chat nuevo entra al historial
+    } catch (e) {
+      if (e.status === 401) return;
+      avisar(e.status === 404 ? 'Esa novedad ya no está.' : 'No pude abrir la novedad: ' + textoDeFalla(e));
+      cargarNoticias();
+    } finally {
+      N.abriendo = null;
+      if (S.vista === 'novedades') pintarNovedades();
+    }
+  }
+
   // ---------------------------------------------------------------- luz y PC
   // Todo llega resuelto de Doof: aquí no se decide si hay luz ni se calcula nada, solo se pinta.
   async function refrescarSeccion() {
     const turno = ++S.turnoSeccion;
     const vista = S.vista;
-    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes' && vista !== 'usdt') return;
-    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'agentes' ? cargarAgentes() : vista === 'usdt' ? cargarUsdt() : cargarPc());
+    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes' && vista !== 'usdt' && vista !== 'novedades') return;
+    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'agentes' ? cargarAgentes() : vista === 'usdt' ? cargarUsdt() : vista === 'novedades' ? cargarNoticias() : cargarPc());
     if (turno !== S.turnoSeccion || S.vista !== vista) return;
-    await pausa(vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : REFRESCO_PC_MS);
+    await pausa(vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : vista === 'novedades' ? REFRESCO_NOVEDADES_MS : REFRESCO_PC_MS);
     if (turno === S.turnoSeccion) refrescarSeccion();
   }
 
@@ -2251,7 +2401,7 @@
   async function cargarEstadoInicio() {
     const turno = ++turnoInicio;
     if (S.vista !== 'inicio' || document.hidden || S.conectado !== true) return;
-    const tareas = [cargarPc(), cargarAgentes()];
+    const tareas = [cargarPc(), cargarAgentes(), cargarNoticias()];     // las Novedades solo para la insignia del menú
     if (!S.luzLeida || Date.now() - S.luzLeida > LUZ_FRESCA_MS) tareas.push(cargarLuz());
     await Promise.allSettled(tareas);
     if (turno !== turnoInicio || S.vista !== 'inicio') return;
@@ -2981,6 +3131,7 @@
     hoja.classList.add('abierta');
     hoja.setAttribute('aria-hidden', 'false');
     document.body.classList.add('con-hoja');
+    if (id === 'hoja-menu') cargarNoticias();        // la insignia de Novedades puede estar vieja
     if (id === 'hoja-historial') {
       pintarHistorial();
       cargarConversaciones();         // la lista pudo quedar vieja: el refresco tras cada mensaje espera 1,6 s y se abre más rápido que eso
@@ -3293,6 +3444,11 @@
     $('#estado-casa').addEventListener('click', (e) => {
       const destino = e.target.closest('[data-destino]')?.dataset.destino;
       if (destino) irASeccion(destino);
+    });
+    $('#novedades-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const repo = $('#novedades-repo').value.trim();
+      if (repo && !N.agregando) cambiarFuente('agregar', repo);
     });
     $('#menu-salir').addEventListener('click', cerrarSesion);
     $('#menu-avisos').addEventListener('click', alternarAvisos);

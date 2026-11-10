@@ -53,7 +53,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.09-f5e9e51303';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.09-11a819280c';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -866,6 +866,7 @@
     $('#vista-agente-p')?.classList.toggle('activa', S.vista === 'agente-p');
     $('#btn-atras').hidden = S.vista === 'inicio';
     $('#btn-nueva-barra').hidden = S.vista !== 'chat';
+    $('#btn-borrar-chat').hidden = !(S.vista === 'chat' && S.sesion && !S.soloLectura);      // solo con un chat de la app abierto (los viejos de Telegram/HUD son de lectura)
     $('#btn-historial').hidden = false;
     $('#barra-titulo').textContent = S.vista === 'chat' && S.soloLectura && S.inicioVista
       ? capitalizar(fechaLarga(new Date(S.inicioVista)))
@@ -935,6 +936,7 @@
     if (history.state?.doof === 'raiz') {
       H.capas.length = 0;
       cerrarVisorUI();
+      cerrarPdfUI();
       cerrarHojasUI();
       if (S.vista !== 'inicio') irAInicioUI();
       avisar('Atrás otra vez para salir');
@@ -944,6 +946,7 @@
     }
     const capa = H.capas.pop();
     if (capa === 'visor') cerrarVisorUI();
+    else if (capa === 'pdf') cerrarPdfUI();
     else if (capa === 'hoja') cerrarHojasUI();
     else if (capa === 'vista') volverUI();
   }
@@ -952,6 +955,7 @@
   function atras() {
     const tope = H.capas[H.capas.length - 1];
     if (tope === 'visor') cerrarVisor();
+    else if (tope === 'pdf') cerrarPdf();
     else if (tope === 'hoja') cerrarHojas();
     else if (S.vista !== 'inicio') volver();
   }
@@ -1897,6 +1901,10 @@
       const acciones = elemento('div', 'tarjeta-pdf-acciones');
       const enlacePdf = m.adjunto.pdf_url || m.adjunto.url;
       if (enlacePdf) {
+        const verAqui = elemento('button', 'btn-pdf-ver-aqui', '📄 Ver aquí');
+        verAqui.type = 'button';
+        verAqui.addEventListener('click', () => verPdf({ url: (S.base || '') + enlacePdf, titulo: m.adjunto.nombre || 'Expediente OSINT', nombre: m.adjunto.nombre || 'expediente.pdf' }));
+        acciones.append(verAqui);
         const aPdf = elemento('a', 'btn-pdf-descarga', '⬇️ Descargar PDF');
         aPdf.href = (S.base || '') + enlacePdf;
         aPdf.target = '_blank';
@@ -2348,6 +2356,7 @@
     if (!id || id === S.sesion) return;
     S.sesion = id;
     guardar('doof_conv', id);
+    actualizarBarra();           // aparece el bote de borrar en cuanto el chat existe
   }
 
   function recibir(datos) {
@@ -2425,7 +2434,14 @@
         caja.appendChild(iconoDe());
       });
       ponerImagen(img, url);
-      img.addEventListener('click', () => verImagen(url));
+      const nombreEnPc = (a.url || '').startsWith('/mente/adjunto/') ? decodeURIComponent((a.url || '').split('/').pop()) : '';
+      if (tipo === 'pdf' && nombreEnPc) {
+        // La miniatura es solo la 1ª página: tocarla abre el documento entero en el visor, sin salir de la app.
+        caja.classList.add('es-pdf');
+        img.addEventListener('click', () => verPdf({ url: S.base + '/api/pdf/' + encodeURIComponent(nombreEnPc), titulo: a.nombre || nombreEnPc, nombre: nombreEnPc }));
+      } else {
+        img.addEventListener('click', () => verImagen(url));
+      }
       caja.appendChild(img);
       const pie = document.createElement('div');
       pie.className = 'pie';
@@ -2708,6 +2724,242 @@
     ajustarEntrada();
   }
 
+  // ---------------------------------------------------------------- visor de PDF
+  // pdf.js (Mozilla, Apache 2.0, en static/vendor/pdfjs) se baja la primera vez que se abre un documento y queda en la caché del service worker.
+  // El PDF se baja entero por el puente (con el token) y se dibuja página por página en canvas, solo las cercanas a la pantalla: un PDF de 25 MB y
+  // 200 páginas no cabe en memoria si se dibuja todo. isEvalSupported:false porque la CSP de la app prohíbe eval.
+  const VERSION_PDFJS = '4.10.38';
+  const V = { lib: null, doc: null, bytes: null, titulo: '', zoom: 1, paginas: [], observador: null, aspecto: 1.414, entrega: 0, nombre: 'documento.pdf' };
+  const ZOOMS = [1, 1.5, 2, 3];
+
+  async function cargarPdfJs() {
+    if (V.lib) return V.lib;
+    const base = new URL('static/vendor/pdfjs/', document.baseURI);
+    const lib = await import(new URL('pdf.min.js?v=' + VERSION_PDFJS, base).href);
+    lib.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.js?v=' + VERSION_PDFJS, base).href;
+    V.lib = lib;
+    return lib;
+  }
+
+  function estadoPdf(contenido, error = false) {
+    const caja = $('#pdf-estado');
+    caja.className = 'visor-pdf-estado' + (error ? ' error' : '');
+    caja.textContent = '';
+    if (contenido) caja.append(contenido);
+  }
+
+  async function bajarPdf(url, alProgreso) {
+    const respuesta = await fetch(url, { headers: S.token ? { 'X-Doof-Token': S.token } : {}, referrerPolicy: 'no-referrer', cache: 'no-store' });
+    if (!respuesta.ok) {
+      let motivo = '';
+      try { motivo = (await respuesta.json()).error || ''; } catch (e) { /* sin JSON */ }
+      throw new Error(motivo || ('error ' + respuesta.status));
+    }
+    const total = Number(respuesta.headers.get('Content-Length')) || 0;
+    if (!respuesta.body || !respuesta.body.getReader) return new Uint8Array(await respuesta.arrayBuffer());
+    const lector = respuesta.body.getReader();
+    const trozos = [];
+    let leido = 0;
+    for (;;) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      trozos.push(value);
+      leido += value.length;
+      alProgreso(leido, total);
+    }
+    const todo = new Uint8Array(leido);
+    let pos = 0;
+    for (const t of trozos) { todo.set(t, pos); pos += t.length; }
+    return todo;
+  }
+
+  // `url` es la dirección completa del PDF en el puente; `titulo` y `nombre`, para la barra y para guardar una copia.
+  async function verPdf({ url, titulo, nombre }) {
+    const entrega = ++V.entrega;            // si se cierra y se abre otro mientras baja, lo viejo se descarta
+    limpiarPdf();
+    V.titulo = titulo || 'Documento';
+    V.nombre = nombre || 'documento.pdf';
+    V.zoom = 1;
+    $('#pdf-titulo').textContent = V.titulo;
+    $('#pdf-pagina').textContent = '';
+    $('#visor-pdf').hidden = false;
+    if (!H.capas.includes('pdf')) empujarCapa('pdf');
+    const barra = document.createElement('i');
+    const caja = document.createElement('div');
+    caja.className = 'barra';
+    caja.append(barra);
+    const texto = document.createElement('div');
+    texto.textContent = 'Abriendo el documento…';
+    estadoPdf(document.createDocumentFragment());
+    $('#pdf-estado').append(texto, caja);
+    try {
+      const [lib, bytes] = await Promise.all([cargarPdfJs(), bajarPdf(url, (leido, total) => {
+        if (total) barra.style.width = Math.round(100 * leido / total) + '%';
+        texto.textContent = total ? `Bajando el documento… ${pesoLegible(leido)} de ${pesoLegible(total)}` : `Bajando el documento… ${pesoLegible(leido)}`;
+      })]);
+      if (entrega !== V.entrega) return;
+      V.bytes = bytes;
+      texto.textContent = 'Preparando las páginas…';
+      V.doc = await lib.getDocument({ data: bytes.slice(), isEvalSupported: false, useSystemFonts: true }).promise;
+      if (entrega !== V.entrega) { V.doc.destroy(); V.doc = null; return; }
+      const primera = await V.doc.getPage(1);
+      const vp = primera.getViewport({ scale: 1 });
+      V.aspecto = vp.height / vp.width;
+      estadoPdf(null);
+      armarPaginasPdf();
+    } catch (e) {
+      if (entrega !== V.entrega) return;
+      const clave = e && e.name === 'PasswordException';
+      estadoPdf(clave ? 'Este PDF tiene contraseña y no lo puedo abrir aquí.' : 'No pude abrir el documento: ' + (e && e.message ? e.message : 'error'), true);
+    }
+  }
+
+  function anchoPaginaPdf() {
+    const caja = $('#pdf-paginas');
+    return Math.max(200, (caja.clientWidth - (V.zoom > 1 ? 20 : 0)) * V.zoom);
+  }
+
+  function armarPaginasPdf() {
+    const caja = $('#pdf-paginas');
+    caja.textContent = '';
+    caja.classList.toggle('ancho', V.zoom > 1);
+    V.paginas = [];
+    if (V.observador) V.observador.disconnect();
+    // Dibuja lo que está cerca de la pantalla (hasta dos pantallas arriba y abajo) y libera el resto.
+    V.observador = new IntersectionObserver((entradas) => {
+      for (const e of entradas) {
+        const pagina = V.paginas[Number(e.target.dataset.indice)];
+        if (e.isIntersecting) dibujarPaginaPdf(pagina);
+        else liberarPaginaPdf(pagina);
+      }
+    }, { root: caja, rootMargin: '200% 0px' });
+    const ancho = anchoPaginaPdf();
+    for (let n = 1; n <= V.doc.numPages; n++) {
+      const div = document.createElement('div');
+      div.className = 'pdf-pagina';
+      div.dataset.numero = String(n);
+      div.dataset.indice = String(n - 1);
+      div.style.width = ancho + 'px';
+      div.style.height = Math.round(ancho * V.aspecto) + 'px';
+      caja.append(div);
+      V.paginas.push({ n, div, canvas: null, tarea: null, escala: 0 });
+      V.observador.observe(div);
+    }
+    marcarPaginaPdf();
+  }
+
+  async function dibujarPaginaPdf(p) {
+    if (p.canvas || p.pendiente || !V.doc) return;
+    const doc = V.doc;
+    p.pendiente = true;
+    try {
+      const pagina = await doc.getPage(p.n);
+      if (doc !== V.doc) return;
+      const ancho = anchoPaginaPdf();
+      const base = pagina.getViewport({ scale: 1 });
+      let escala = (ancho / base.width) * Math.min(window.devicePixelRatio || 1, 2.5);
+      const maximo = 12e6;                                    // píxeles por canvas: más que eso y el teléfono se queda sin memoria
+      if (base.width * base.height * escala * escala > maximo) escala = Math.sqrt(maximo / (base.width * base.height));
+      const vp = pagina.getViewport({ scale: escala });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      p.tarea = pagina.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+      await p.tarea.promise;
+      if (doc !== V.doc || !p.div.isConnected) return;
+      p.canvas = canvas;
+      p.div.style.height = Math.round(ancho * (base.height / base.width)) + 'px';     // la altura real de ESTA página (pueden ser distintas)
+      p.div.classList.add('lista');
+      p.div.append(canvas);
+      pagina.cleanup();
+    } catch (e) {
+      if (!(e && e.name === 'RenderingCancelledException')) console.warn('pdf: página', p.n, e);
+    } finally {
+      p.pendiente = false;
+      p.tarea = null;
+    }
+  }
+
+  function liberarPaginaPdf(p) {
+    if (!p) return;
+    if (p.tarea) { try { p.tarea.cancel(); } catch (e) { /* ya terminó */ } }
+    if (p.canvas) {
+      p.canvas.width = 0;            // suelta la memoria del canvas ya
+      p.canvas.height = 0;
+      p.canvas.remove();
+      p.canvas = null;
+      p.div.classList.remove('lista');
+    }
+  }
+
+  let relojPaginaPdf = 0;
+  function marcarPaginaPdf() {
+    if (!V.doc) return;
+    const caja = $('#pdf-paginas');
+    const medio = caja.scrollTop + caja.clientHeight / 2;
+    let actual = 1;
+    for (const p of V.paginas) {
+      if (p.div.offsetTop + p.div.offsetHeight >= medio) { actual = p.n; break; }
+      actual = p.n;
+    }
+    $('#pdf-pagina').textContent = `Página ${actual} de ${V.doc.numPages}`;
+  }
+
+  function cambiarZoomPdf(paso) {
+    if (!V.doc) return;
+    const indice = Math.min(ZOOMS.length - 1, Math.max(0, ZOOMS.indexOf(V.zoom) + paso));
+    if (ZOOMS[indice] === V.zoom) return;
+    const caja = $('#pdf-paginas');
+    const proporcion = caja.scrollHeight ? caja.scrollTop / caja.scrollHeight : 0;
+    V.zoom = ZOOMS[indice];
+    for (const p of V.paginas) liberarPaginaPdf(p);
+    armarPaginasPdf();
+    caja.scrollTop = proporcion * caja.scrollHeight;
+  }
+
+  function guardarCopiaPdf() {
+    if (!V.bytes) return;
+    const enlace = document.createElement('a');
+    enlace.href = URL.createObjectURL(new Blob([V.bytes], { type: 'application/pdf' }));
+    enlace.download = V.nombre;
+    document.body.append(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(enlace.href), 30000);
+  }
+
+  function limpiarPdf() {
+    for (const p of V.paginas) liberarPaginaPdf(p);
+    V.paginas = [];
+    if (V.observador) { V.observador.disconnect(); V.observador = null; }
+    if (V.doc) { V.doc.destroy().catch(() => {}); V.doc = null; }
+    V.bytes = null;
+    $('#pdf-paginas').textContent = '';
+    estadoPdf(null);
+  }
+
+  function cerrarPdfUI() {
+    V.entrega += 1;                  // lo que todavía esté bajando se descarta
+    $('#visor-pdf').hidden = true;
+    limpiarPdf();
+  }
+
+  function cerrarPdf() {
+    cerrarPdfUI();
+    if (H.capas[H.capas.length - 1] === 'pdf') quitarCapas(1);
+  }
+
+  function cablearVisorPdf() {
+    $('#pdf-cerrar').addEventListener('click', cerrarPdf);
+    $('#pdf-mas').addEventListener('click', () => cambiarZoomPdf(1));
+    $('#pdf-menos').addEventListener('click', () => cambiarZoomPdf(-1));
+    $('#pdf-guardar').addEventListener('click', guardarCopiaPdf);
+    $('#pdf-paginas').addEventListener('scroll', () => {
+      cancelAnimationFrame(relojPaginaPdf);
+      relojPaginaPdf = requestAnimationFrame(marcarPaginaPdf);
+    }, { passive: true });
+  }
+
   function verImagen(url) {
     const velo = $('#velo');
     velo.textContent = '';
@@ -2799,6 +3051,40 @@
   }
 
   // Dos toques para borrar un chat de la app y su historial para el modelo: no se debe poder hacer sin querer. Las memorias de Doof no se tocan.
+  // Borra un chat de la app y su historial para el modelo (las memorias de Doof no se tocan). Si era el que estaba abierto, queda uno nuevo y vacío.
+  async function borrarConversacion(id) {
+    await api('/conversaciones/' + encodeURIComponent(id) + '/borrar', { method: 'POST' });
+    if (id === S.sesion) {
+      S.sesion = null;
+      guardar('doof_conv', '');
+      S.mensajes = [];
+      S.esperando = false;
+      pintarMensajes();
+      pintarInicio();
+      actualizarBarra();
+    }
+    await cargarConversaciones();
+  }
+
+  // El botón de la barra del chat: dos toques (el primero lo pone en rojo y avisa), porque borrar no tiene vuelta atrás.
+  async function borrarChatActual() {
+    const boton = $('#btn-borrar-chat');
+    if (!S.sesion) return;
+    if (!boton.classList.contains('confirmar')) {
+      boton.classList.add('confirmar');
+      avisar('Toca otra vez el bote para borrar este chat');
+      setTimeout(() => boton.classList.remove('confirmar'), 3500);
+      return;
+    }
+    boton.classList.remove('confirmar');
+    try {
+      await borrarConversacion(S.sesion);
+      avisar('Chat borrado');
+    } catch (e) {
+      avisar('No pude borrarlo: ' + e.message);
+    }
+  }
+
   function filaConBorrar(c) {
     const caja = document.createElement('div');
     caja.className = 'fila-con-borrar';
@@ -2815,9 +3101,7 @@
         return;
       }
       try {
-        await api('/conversaciones/' + encodeURIComponent(c.id) + '/borrar', { method: 'POST' });
-        if (c.id === S.sesion) { S.sesion = null; guardar('doof_conv', ''); S.mensajes = []; pintarMensajes(); pintarInicio(); }
-        await cargarConversaciones();
+        await borrarConversacion(c.id);
       } catch (e) {
         avisar('No pude borrarlo: ' + e.message);
       }
@@ -2955,6 +3239,7 @@
     $('#btn-historial').addEventListener('click', () => abrirHoja('hoja-menu'));
     $$('#hoja-menu .fila').forEach((f) => f.addEventListener('click', () => alElegirDelMenu(f.dataset.destino)));
     $('#btn-nueva-barra').addEventListener('click', () => nuevaConversacion());
+    $('#btn-borrar-chat').addEventListener('click', borrarChatActual);
     $('#ver-todo').addEventListener('click', () => abrirHoja('hoja-historial'));
     $('#continuar').addEventListener('click', () => irAChat());
     $('#btn-nueva').addEventListener('click', () => nuevaConversacion());
@@ -3011,6 +3296,7 @@
     });
     $('#menu-salir').addEventListener('click', cerrarSesion);
     $('#menu-avisos').addEventListener('click', alternarAvisos);
+    cablearVisorPdf();
     pintarAvisos();
 
     document.addEventListener('paste', (e) => {

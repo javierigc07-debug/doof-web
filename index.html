@@ -16,7 +16,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="static/iconos/ojo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="static/iconos/icono-192.png">
-  <link rel="stylesheet" href="static/app.css?v=f5e9e51303">
+  <link rel="stylesheet" href="static/app.css?v=11a819280c">
 </head>
 <body>
 
@@ -46,6 +46,9 @@
     <!-- Conserva el id viejo: al publicar, una sola carga puede juntar este HTML con el app.js anterior del caché, y sin el id esa versión no arranca. -->
     <button id="btn-historial" class="icono" aria-label="Menú">
       <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <button id="btn-borrar-chat" class="icono" aria-label="Borrar este chat" hidden>
+      <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
     </button>
     <button id="btn-nueva-barra" class="icono" aria-label="Nueva conversación" hidden>
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
@@ -224,6 +227,21 @@
 
 <div id="velo" class="velo" hidden></div>
 
+<!-- Visor de PDF: el documento entero dentro de la app (pdf.js, en static/vendor/pdfjs, se baja la primera vez que se abre uno). -->
+<section id="visor-pdf" class="visor-pdf" hidden aria-label="Documento PDF">
+  <header class="visor-pdf-barra">
+    <button id="pdf-cerrar" class="icono" type="button" aria-label="Cerrar el documento">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="visor-pdf-titulo"><b id="pdf-titulo"></b><small id="pdf-pagina"></small></div>
+    <button id="pdf-menos" class="icono" type="button" aria-label="Alejar"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+    <button id="pdf-mas" class="icono" type="button" aria-label="Acercar"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+    <button id="pdf-guardar" class="icono" type="button" aria-label="Guardar una copia"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg></button>
+  </header>
+  <div id="pdf-paginas" class="visor-pdf-paginas"></div>
+  <div id="pdf-estado" class="visor-pdf-estado" role="status"></div>
+</section>
+
 <aside id="hoja-menu" class="hoja lateral" aria-hidden="true" aria-label="Menú">
   <div class="hoja-caja menu">
     <div class="hoja-cab">
@@ -385,7 +403,7 @@
 <input type="file" id="archivo-galeria" accept="image/*" hidden>
 <input type="file" id="archivo-general" hidden>
 
-<script src="static/mini_doof.js?v=f5e9e51303" defer></script>
-<script src="static/app.js?v=f5e9e51303" defer></script>
+<script src="static/mini_doof.js?v=11a819280c" defer></script>
+<script src="static/app.js?v=11a819280c" defer></script>
 </body>
 </html>

@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.11-2a0544e82d';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.11-2175d5b9e0';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -1562,7 +1562,7 @@
     if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes' && vista !== 'usdt' && vista !== 'novedades' && vista !== 'presencia') return;
     if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'presencia' ? cargarPresencia() : vista === 'agentes' ? cargarAgentes() : vista === 'usdt' ? cargarUsdt() : vista === 'novedades' ? cargarNoticias() : cargarPc());
     if (turno !== S.turnoSeccion || S.vista !== vista) return;
-    await pausa(vista === 'luz' || vista === 'presencia' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : vista === 'novedades' ? REFRESCO_NOVEDADES_MS : REFRESCO_PC_MS);
+    await pausa(vista === 'presencia' ? 5000 : vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : vista === 'novedades' ? REFRESCO_NOVEDADES_MS : REFRESCO_PC_MS);
     if (turno === S.turnoSeccion) refrescarSeccion();
   }
 
@@ -1718,7 +1718,7 @@
     }
     const via = d.via === 'bluetooth' ? 'Bluetooth' : d.via === 'wifi' ? 'Wi-Fi de la casa' : '—';
     const pares = [['Te detecté por', via]];
-    if (d.senal) pares.push(['Señal Bluetooth', `${d.senal.dbm} dBm · ${d.senal.nivel}`]);
+    pares.push(['Señal Bluetooth', d.senal ? `${d.senal.dbm} dBm · ${d.senal.nivel}` : 'sin señal']);
     if (d.wifi_hace) pares.push(['Visto en el Wi-Fi', d.wifi_hace === 'ahora mismo' ? d.wifi_hace : `hace ${d.wifi_hace}`]);
     if (d.estado !== 'sin_determinar' && d.estado !== 'fuera') caja.append(lecturas(pares));
     if (!d.sensor) caja.append(elemento('p', 'casa-nota', 'El sensor del cuarto (ESP32) no está respondiendo: sé si estás en casa por el Wi-Fi, pero no si estás en tu cuarto.'));

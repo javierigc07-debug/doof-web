@@ -48,12 +48,15 @@
     arranque: null,           // lo que entregó /arranque en el último sondeo; ponerseAlDia lo consume
     sinArranque: false,       // el puente es viejo y no tiene /arranque: se sigue por /salud
     luzLeida: null,
+    presencia: null,          // sección experimental: dónde ubica el Centinela a Javier
+    presenciaFalla: null,
+    presenciaLeida: null,
     cache: null,              // lo último que se vio, para pintar el inicio antes de que conteste la PC
     pcLeida: null,
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.10-a7b54fa599';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.11-2a0544e82d';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -84,7 +87,7 @@
   const ESPERA_ABRIR_MINI_MS = 15000;
   const CERRAR_MINI_AL_OCULTAR_MS = 5 * 60 * 1000;
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', novedades: 'Novedades', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', presencia: 'Presencia', novedades: 'Novedades', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -449,6 +452,14 @@
       } else if (novedad && /^[0-9a-f]{12}$/.test(novedad)) {
         history.replaceState(history.state, '', location.pathname);
         abrirNovedad(novedad);
+      } else if (['luz', 'usdt', 'pc', 'agentes', 'novedades'].includes(params.get('seccion'))) {
+        // El menú de la bandeja de la PC: "Luz" y "USDT" abren la ventana ya en esa sección.
+        const seccion = params.get('seccion');
+        history.replaceState(history.state, '', location.pathname);
+        irASeccion(seccion);
+      } else if (params.get('nuevo') === '1') {
+        history.replaceState(history.state, '', location.pathname);
+        nuevaConversacion(false);
       }
     }
   }
@@ -866,6 +877,7 @@
     $('#vista-luz').classList.toggle('activa', S.vista === 'luz');
     $('#vista-pc').classList.toggle('activa', S.vista === 'pc');
     $('#vista-usdt').classList.toggle('activa', S.vista === 'usdt');
+    $('#vista-presencia').classList.toggle('activa', S.vista === 'presencia');
     $('#vista-novedades').classList.toggle('activa', S.vista === 'novedades');
     $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
     $('#vista-mini').classList.toggle('activa', S.vista === 'mini');
@@ -1003,6 +1015,7 @@
     pintarAprobaciones();
     if (vista === 'luz') pintarLuz();
     else if (vista === 'usdt') pintarUsdt();
+    else if (vista === 'presencia') pintarPresencia();
     else if (vista === 'novedades') pintarNovedades();
     else if (vista === 'agentes') pintarAgentes();
     else if (vista === 'mini') abrirMini();
@@ -1546,10 +1559,10 @@
   async function refrescarSeccion() {
     const turno = ++S.turnoSeccion;
     const vista = S.vista;
-    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes' && vista !== 'usdt' && vista !== 'novedades') return;
-    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'agentes' ? cargarAgentes() : vista === 'usdt' ? cargarUsdt() : vista === 'novedades' ? cargarNoticias() : cargarPc());
+    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes' && vista !== 'usdt' && vista !== 'novedades' && vista !== 'presencia') return;
+    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'presencia' ? cargarPresencia() : vista === 'agentes' ? cargarAgentes() : vista === 'usdt' ? cargarUsdt() : vista === 'novedades' ? cargarNoticias() : cargarPc());
     if (turno !== S.turnoSeccion || S.vista !== vista) return;
-    await pausa(vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : vista === 'novedades' ? REFRESCO_NOVEDADES_MS : REFRESCO_PC_MS);
+    await pausa(vista === 'luz' || vista === 'presencia' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : vista === 'novedades' ? REFRESCO_NOVEDADES_MS : REFRESCO_PC_MS);
     if (turno === S.turnoSeccion) refrescarSeccion();
   }
 
@@ -1660,6 +1673,64 @@
     if (d.totales) partes.push(`${d.totales.cortes} ${d.totales.cortes === 1 ? 'corte' : 'cortes'} y ${decimal(d.totales.horas)} h con las baterías en total.`);
     if (S.luzLeida) partes.push(`Leído a las ${hora(S.luzLeida)}.`);
     if (partes.length) caja.append(elemento('p', 'casa-nota', partes.join(' ')));
+  }
+
+  // ---------------------------------------------------------------- presencia (Funciones experimentales)
+  // Provisional. Para retirarla: este bloque, su <section> y su fila del menú en index.html, las tres claves de S, y /api/presencia en servidor.py.
+  async function cargarPresencia() {
+    try {
+      S.presencia = await api('/presencia', {}, TIEMPO_LUZ_MS);
+      S.presenciaFalla = null;
+      S.presenciaLeida = new Date();
+    } catch (e) {
+      S.presencia = null;       // un dato viejo haría creer que todavía se sabe dónde está
+      S.presenciaFalla = e;
+    }
+    if (S.vista === 'presencia') pintarPresencia();
+  }
+
+  function encabezadoPresencia() {
+    const d = S.presencia;
+    if (S.presenciaFalla) return encabezadoCasa('', 'No sé dónde estás', textoDeFalla(S.presenciaFalla));
+    if (!d) return encabezadoCasa('', 'Buscándote…', '');
+    if (d.estado === 'sin_respuesta') {
+      if (d.falta_clave) return encabezadoCasa('', 'No sé dónde estás', 'A Doof le falta la contraseña del panel de Baterías para leer lo que publica la Raspberry.');
+      return encabezadoCasa('', 'No sé dónde estás', 'No llegan datos recientes del Centinela: puede estar apagado, o la Raspberry reiniciándose o sin internet.' + (d.ultimo ? ` Último dato: ${d.ultimo}.` : ''));
+    }
+    if (d.estado === 'sin_determinar') return encabezadoCasa('', 'Todavía no lo sé', 'El Centinela acaba de arrancar y aún no te ha visto. Tarda hasta 5 minutos en decidir que no estás.');
+    const desde = d.desde ? `Desde las ${d.desde.hora} · lleva ${d.desde.lleva}` : '';
+    if (d.estado === 'fuera') return encabezadoCasa('mal', 'No estás en casa', desde);
+    return encabezadoCasa('bien', d.estado === 'en_cuarto' ? 'Estás en tu cuarto' : 'Estás en casa', desde);
+  }
+
+  function pintarPresencia() {
+    const caja = $('#presencia-contenido');
+    caja.textContent = '';
+    caja.appendChild(encabezadoPresencia());
+    const d = S.presencia;
+    if (!d || d.estado === 'sin_respuesta') return;
+    if (d.senal) {
+      const medidor = elemento('div', 'medidor' + (d.senal.nivel === 'débil' ? ' bajo' : d.senal.nivel === 'media' ? ' medio' : ''));
+      const relleno = elemento('span');
+      relleno.style.width = d.senal.pct + '%';
+      medidor.appendChild(relleno);
+      caja.append(medidor);
+    }
+    const via = d.via === 'bluetooth' ? 'Bluetooth' : d.via === 'wifi' ? 'Wi-Fi de la casa' : '—';
+    const pares = [['Te detecté por', via]];
+    if (d.senal) pares.push(['Señal Bluetooth', `${d.senal.dbm} dBm · ${d.senal.nivel}`]);
+    if (d.wifi_hace) pares.push(['Visto en el Wi-Fi', d.wifi_hace === 'ahora mismo' ? d.wifi_hace : `hace ${d.wifi_hace}`]);
+    if (d.estado !== 'sin_determinar' && d.estado !== 'fuera') caja.append(lecturas(pares));
+    if (!d.sensor) caja.append(elemento('p', 'casa-nota', 'El sensor del cuarto (ESP32) no está respondiendo: sé si estás en casa por el Wi-Fi, pero no si estás en tu cuarto.'));
+    if (d.eventos?.length) {
+      caja.append(elemento('h3', 'casa-subtitulo', 'Entradas y salidas'));
+      for (const e of d.eventos) {
+        const fila = elemento('div', 'corte');
+        fila.append(elemento('span', '', e.texto), elemento('small', '', e.hora));
+        caja.append(fila);
+      }
+    }
+    if (S.presenciaLeida) caja.append(elemento('p', 'casa-nota', `Leído a las ${hora(S.presenciaLeida)}. Función experimental.`));
   }
 
   function ponerCuentaApagado(segundos) {
@@ -3366,7 +3437,17 @@
   }
 
   // ---------------------------------------------------------------- arranque
+  // La bandeja de la PC abre la ventana con #t=<token> para no pegarlo a mano. Solo vale en la copia local: en la de Pages
+  // un enlace ajeno podría meterle a la app un token que no es el de Javier. El fragmento no viaja al servidor y se borra enseguida.
+  function tokenDelEnlace() {
+    const m = location.hash.match(/^#t=([A-Za-z0-9_-]{16,128})$/);
+    if (!m) return;
+    history.replaceState(history.state, '', location.pathname + location.search);
+    if (!ES_REMOTO) guardar('doof_token', m[1]);
+  }
+
   function arrancar() {
+    tokenDelEnlace();
     S.token = leerGuardado('doof_token');
     if (ES_REMOTO) S.base = leerGuardado('doof_base');
     S.sobreEnlace = sobreDelEnlace();

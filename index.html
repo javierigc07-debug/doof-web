@@ -16,7 +16,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="static/iconos/ojo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="static/iconos/icono-192.png">
-  <link rel="stylesheet" href="static/app.css?v=a7b54fa599">
+  <link rel="stylesheet" href="static/app.css?v=2a0544e82d">
 </head>
 <body>
 
@@ -139,6 +139,11 @@
 
     <section id="vista-usdt" class="vista seccion-casa">
       <div id="usdt-contenido" aria-live="polite"></div>
+    </section>
+
+    <!-- Funciones experimentales: Presencia (provisional) -->
+    <section id="vista-presencia" class="vista seccion-casa">
+      <div id="presencia-contenido" aria-live="polite"></div>
     </section>
 
     <section id="vista-novedades" class="vista seccion-casa">
@@ -313,6 +318,13 @@
           <span class="fila-texto"><b>Agente P</b><small>Inteligencia OSINT y expedientes</small></span>
         </button>
       </div>
+      <div class="menu-grupo" role="group" aria-labelledby="mg-exp">
+        <p class="menu-etiqueta" id="mg-exp">Funciones experimentales</p>
+        <button class="fila" data-destino="presencia">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0114 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+          <span class="fila-texto"><b>Presencia</b><small>Si estás en casa o en tu cuarto</small></span>
+        </button>
+      </div>
     </nav>
     <div class="menu-pie">
       <p id="menu-conexion" class="menu-conexion" aria-live="polite"></p>
@@ -420,7 +432,7 @@
 <input type="file" id="archivo-galeria" accept="image/*" hidden>
 <input type="file" id="archivo-general" hidden>
 
-<script src="static/mini_doof.js?v=a7b54fa599" defer></script>
-<script src="static/app.js?v=a7b54fa599" defer></script>
+<script src="static/mini_doof.js?v=2a0544e82d" defer></script>
+<script src="static/app.js?v=2a0544e82d" defer></script>
 </body>
 </html>

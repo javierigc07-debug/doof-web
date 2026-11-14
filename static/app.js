@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.14-d8d435795c';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.14-e3fa70e5c1';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -126,6 +126,7 @@
     imagen: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-5-5L5 20"/></svg>',
     pdf: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h5"/></svg>',
     chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 01-8 8H7l-4 3v-6.5A8 8 0 1121 12z"/></svg>',
+    campana: '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 004 0"/></svg>',
   };
 
   // ---------------------------------------------------------------- utilidades
@@ -2705,16 +2706,26 @@
     for (const c of recientes) caja.appendChild(filaConversacion(c, false));
   }
 
+  // El HUD le pone a cada chat un título corto con la IA después de la primera respuesta. Mientras no lo tiene (o si falló), se muestra
+  // el primer mensaje, con mayúscula y cortado en una palabra entera en vez de a mitad de palabra.
+  function tituloConversacion(c) {
+    if (c.titulo) return c.titulo;
+    let t = (c.adelanto || '').replace(/\s+/g, ' ').trim();
+    if (!t) return '(sin mensajes)';
+    if (t.length > 60) t = t.slice(0, 60).replace(/\s+\S*$/, '').replace(/[\s,.;:]+$/, '') + '…';
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
   function filaConversacion(c, enHistorial) {
     const boton = document.createElement('button');
     boton.className = 'fila' + (enHistorial && c.id === S.sesion && !S.soloLectura ? ' actual' : '');
     const icono = document.createElement('span');
     icono.className = 'fila-icono';
-    icono.innerHTML = ICONOS.chat;
+    icono.innerHTML = c.origen === 'app' ? ICONOS.chat : ICONOS.campana;     // los de Telegram y avisos se distinguen sin leer la línea de abajo
     const texto = document.createElement('span');
     texto.className = 'fila-texto';
     const titulo = document.createElement('b');
-    titulo.textContent = c.adelanto || '(sin mensajes)';
+    titulo.textContent = tituloConversacion(c);
     const meta = document.createElement('small');
     meta.textContent = fechaCorta(c.inicio) + ' · ' + c.cantidad + (c.cantidad === 1 ? ' mensaje' : ' mensajes') + (c.origen === 'app' ? '' : ' · Telegram y avisos');
     texto.append(titulo, meta);
@@ -3450,7 +3461,7 @@
     const filtro = normalizar(S.filtroHistorial);
     const lista = S.conversaciones
       .filter(c => c.cantidad > 0)
-      .filter(c => !filtro || normalizar(c.adelanto).includes(filtro));
+      .filter(c => !filtro || normalizar((c.titulo || '') + ' ' + c.adelanto).includes(filtro));
 
     if (!lista.length) {
       const vacio = document.createElement('div');

@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.11-2175d5b9e0';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.14-0f86bb9763';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -1946,6 +1946,8 @@
       });
       // La Pi le agrega a cada respuesta "💭 Charla libre: puedo inventar cosas...". Javier no la quiere en cada mensaje (6 nov 2026): el saludo ya lo dice una vez.
       respuesta.texto = (final.texto || '').replace(/^\s*💭.*$/gmu, '').trim();
+      if (final.imagen) respuesta.imagen = final.imagen;   // un dibujo de la Xbox (data URL ya armada en mini_doof.js)
+      if (final.imagenIncompleta) respuesta.texto += '\n(El dibujo no llegó completo. Pídemelo otra vez.)';
       ponerConexionMini('lista');
     } catch (e) {
       respuesta.texto = MINI_NO_RESPONDE;
@@ -1971,7 +1973,18 @@
       d.append(o, t);
       return d;
     }
-    d.append(o, elemento('div', 'msg-cuerpo' + (m.fallo ? ' fallo' : ''), m.texto));
+    const cuerpo = elemento('div', 'msg-cuerpo' + (m.fallo ? ' fallo' : ''));
+    if (m.imagen) {
+      const img = elemento('img', 'msg-imagen');
+      img.src = m.imagen;
+      img.alt = m.texto || 'Dibujo de Charlene';
+      const guardar = elemento('a', 'msg-guardar', 'Guardar imagen');
+      guardar.href = m.imagen;
+      guardar.download = 'charlene.png';
+      cuerpo.append(img, guardar);
+    }
+    cuerpo.append(document.createTextNode(m.texto || ''));
+    d.append(o, cuerpo);
     return d;
   }
 

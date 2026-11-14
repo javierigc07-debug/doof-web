@@ -235,12 +235,27 @@
     }
     const pendiente = propia.pendientes.get(mensaje.n);
     if (!pendiente) return;
-    const marca = `${mensaje.n}|${!!mensaje.fin}`;   // llega por los dos brokers
+    // Llega por los dos brokers. "k" numera cada parcial (14 nov 2026): sin él, todo parcial después del primero se
+    // descartaba como repetido, y un dibujo viaja en varios trozos.
+    const marca = `${mensaje.n}|${!!mensaje.fin}|${mensaje.k ?? ''}`;
     if (propia.vistos.has(marca)) return;
     propia.vistos.add(marca);
     clearTimeout(pendiente.reloj);
+    if (typeof mensaje.img === 'string') {   // un trozo de un dibujo de la Xbox: se junta, no se muestra
+      (pendiente.trozos = pendiente.trozos || [])[mensaje.parte] = mensaje.img;
+      pendiente.reloj = setTimeout(pendiente.vencer, ESPERA_CHARLA_MS);
+      return;
+    }
     if (mensaje.fin) {
       propia.pendientes.delete(mensaje.n);
+      if (mensaje.img_partes) {
+        // La Pi manda los trozos antes que el final por la misma conexión: si falta alguno, se perdió en el camino.
+        const trozos = pendiente.trozos || [];
+        let completo = true;
+        for (let i = 0; i < mensaje.img_partes; i++) if (typeof trozos[i] !== 'string') completo = false;
+        if (completo) mensaje.imagen = `data:${mensaje.img_tipo || 'image/png'};base64,${trozos.join('')}`;
+        else mensaje.imagenIncompleta = true;
+      }
       pendiente.cumplir(mensaje);
     } else {
       pendiente.reloj = setTimeout(pendiente.vencer, ESPERA_CHARLA_MS);

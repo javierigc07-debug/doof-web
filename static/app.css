@@ -981,6 +981,9 @@ body[data-vista="mini"] .ojo { color: var(--ambar); }
 #vista-mini .mensajes { flex: 1 1 auto; }
 #vista-mini .msg-cuerpo { text-wrap: pretty; }
 #vista-mini .msg-cuerpo.fallo { color: var(--rojo-claro); }
+/* Dibujos de Charlene (SD-Turbo en la Xbox, 512 px): ocupan el ancho del globo, no más. */
+#vista-mini .msg-imagen { display: block; width: 100%; max-width: 360px; height: auto; border-radius: 12px; margin-bottom: 6px; }
+#vista-mini .msg-guardar { display: inline-block; font-size: .85em; opacity: .75; margin-bottom: 4px; color: inherit; }
 .mini-panel { flex: 0 0 auto; padding: 0 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--borde-suave); background: var(--fondo); }
 .mini-panel .caja-texto { margin-top: 10px; align-items: center; box-shadow: none; }
 .mini-panel .caja-texto:focus-within { border-color: rgba(224, 178, 106, .6); box-shadow: 0 0 0 3px rgba(224, 178, 106, .12); }

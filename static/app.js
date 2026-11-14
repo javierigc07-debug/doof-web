@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.14-e3fa70e5c1';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.14-48bd5bb5fd';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -913,6 +913,166 @@
       : TITULOS_DE_VISTA[S.vista] || 'Doof';
     $('#aviso-lectura').hidden = !(S.vista === 'chat' && S.soloLectura);
     actualizarEstado();
+    acomodarEscritorio();
+  }
+
+  // ---------------------------------------------------------------- escritorio
+  // En una ventana ancha (la de la bandeja agrandada, o el navegador de la PC) la app era el teléfono metido en una columna de 640 px con
+  // vacío a los lados. Desde 700 px hay riel de secciones; desde 1100, lateral con los chats y, mientras se conversa, el estado de la casa a la
+  // derecha. No se duplica nada: el panel de la casa es el mismo bloque del inicio, mudado de sitio, y la lista de chats usa filaConversacion.
+  // Debajo de 700 px esto no hace nada visible y el teléfono queda como estaba.
+  const ANCHO_MEDIO = window.matchMedia('(min-width: 700px)');
+  const ANCHO_ESCRITORIO = window.matchMedia('(min-width: 1100px)');
+  const esEscritorio = () => ANCHO_ESCRITORIO.matches;
+  const panelCasaVisible = () => esEscritorio() && (S.vista === 'chat' || S.vista === 'mini');
+  let panelCasaEstaba = false;
+
+  function acomodarEscritorio() {
+    if (!$('#lateral')) return;        // HTML viejo del caché junto a este app.js: sigue como teléfono
+    document.body.classList.toggle('ancho-medio', ANCHO_MEDIO.matches);
+    document.body.classList.toggle('escritorio', esEscritorio());
+    const conPanel = panelCasaVisible();
+    document.body.classList.toggle('con-panel', conPanel);
+    const casa = $('#estado-casa');
+    if (casa) {
+      if (conPanel && casa.parentElement !== $('#panel-casa-hueco')) $('#panel-casa-hueco').appendChild(casa);
+      else if (!conPanel && casa.parentElement !== $('#vista-inicio')) $('#vista-inicio').insertBefore(casa, $('#chips'));
+    }
+    for (const b of $$('#lateral .lateral-item[data-destino]')) {
+      const actual = b.dataset.destino === S.vista;
+      b.classList.toggle('actual', actual);
+      if (actual) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    }
+    // Con la lateral a la vista, "Doof" arriba del chat no dice nada: el título del chat sí. En el teléfono la barra sigue igual.
+    if (esEscritorio() && S.vista === 'chat' && !S.soloLectura) {
+      const conv = S.sesion && (S.conversaciones || []).find(c => c.id === S.sesion);
+      $('#barra-titulo').textContent = conv ? tituloConversacion(conv) : 'Conversación nueva';
+    }
+    pintarLateral();
+    if (conPanel && !panelCasaEstaba) cargarEstadoInicio();     // las tarjetas se renuevan solas mientras se ven, también aquí
+    panelCasaEstaba = conPanel;
+  }
+
+  function pintarLateral() {
+    const caja = $('#lateral-lista');
+    if (!caja || !esEscritorio()) return;
+    const filtro = normalizar(S.filtroLateral || '');
+    const lista = (S.conversaciones || [])
+      .filter(c => c.cantidad > 0)
+      .filter(c => !filtro || normalizar((c.titulo || '') + ' ' + (c.adelanto || '')).includes(filtro));
+    caja.textContent = '';
+    if (!lista.length) {
+      const vacio = document.createElement('p');
+      vacio.className = 'lateral-vacio';
+      vacio.textContent = filtro ? 'No hay nada que diga eso.' : 'Tus chats van a aparecer aquí.';
+      caja.appendChild(vacio);
+      return;
+    }
+    let grupoAnterior = '';
+    for (const c of lista) {
+      const grupo = grupoFecha(c.inicio);
+      if (grupo !== grupoAnterior) {
+        const etiqueta = document.createElement('div');
+        etiqueta.className = 'grupo';
+        etiqueta.textContent = grupo;
+        caja.appendChild(etiqueta);
+        grupoAnterior = grupo;
+      }
+      const fila = filaConversacion(c, true);
+      if (S.vista !== 'chat') fila.classList.remove('actual');      // resaltado solo si ese chat es lo que se está mirando
+      fila.title = tituloConversacion(c);
+      caja.appendChild(fila);
+    }
+  }
+
+  function enfocarBuscadorLateral() {
+    const buscador = $('#lateral-buscar');
+    if (!buscador) return;
+    buscador.focus();
+    buscador.select();
+  }
+
+  function enfocarEntrada() {
+    if (S.vista !== 'inicio' && S.vista !== 'chat') irAChat();
+    setTimeout(() => $('#entrada').focus(), 30);
+  }
+
+  const ATAJOS_SECCIONES = ['inicio', 'luz', 'pc', 'usdt', 'novedades', 'mini', 'agentes', 'agente-p', 'presencia'];
+  const escribiendoEn = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+
+  // Ctrl+N y Ctrl+1..9 los reserva el navegador (ventana nueva, pestañas), por eso nueva conversación es Ctrl+Shift+O y las secciones van con Alt.
+  function atajoEscritorio(e) {
+    if (!ANCHO_MEDIO.matches || e.isComposing || !$('#login').hidden) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    const tecla = e.key.toLowerCase();
+    if (ctrl && !e.shiftKey && !e.altKey && tecla === 'k') {
+      e.preventDefault();
+      if (esEscritorio()) enfocarBuscadorLateral();
+      else abrirHoja('hoja-historial');
+    } else if (ctrl && e.shiftKey && !e.altKey && tecla === 'o') {
+      e.preventDefault();
+      nuevaConversacion(false);
+      setTimeout(() => $('#entrada').focus(), 60);
+    } else if (e.altKey && !ctrl && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+      e.preventDefault();
+      alElegirDelMenu(ATAJOS_SECCIONES[Number(e.code.slice(5)) - 1]);
+    } else if (e.key === '/' && !ctrl && !e.altKey && !escribiendoEn(e.target) && !hojaAbierta()) {
+      e.preventDefault();
+      enfocarEntrada();
+    }
+  }
+
+  function cablearEscritorio() {
+    const lateral = $('#lateral');
+    if (!lateral) return;
+    lateral.addEventListener('click', (e) => {
+      const b = e.target.closest('.lateral-item[data-destino]');
+      if (b) alElegirDelMenu(b.dataset.destino);
+    });
+    $('#lateral-nueva').addEventListener('click', () => {
+      nuevaConversacion(false);
+      setTimeout(() => $('#entrada').focus(), 60);
+    });
+    $('#lateral-ajustes').addEventListener('click', () => abrirHoja('hoja-menu'));
+    const buscador = $('#lateral-buscar');
+    buscador.addEventListener('input', () => { S.filtroLateral = buscador.value; pintarLateral(); });
+    buscador.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        buscador.value = '';
+        S.filtroLateral = '';
+        pintarLateral();
+        buscador.blur();
+      } else if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        $('#lateral-lista .fila')?.focus();
+      }
+    });
+    const alCambiarAncho = () => {
+      if (!ANCHO_MEDIO.matches) cerrarHojasUI();     // un diálogo centrado no tiene sentido al volver a teléfono
+      acomodarEscritorio();
+    };
+    ANCHO_MEDIO.addEventListener('change', alCambiarAncho);
+    ANCHO_ESCRITORIO.addEventListener('change', alCambiarAncho);
+
+    // Arrastrar un archivo sobre la ventana: que se vea dónde cae. Soltar ya lo manejaba cablear().
+    let capas = 0;
+    const tieneArchivos = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+    document.addEventListener('dragenter', (e) => {
+      if (!tieneArchivos(e) || !$('#login').hidden) return;
+      capas++;
+      document.body.classList.add('arrastrando');
+    });
+    document.addEventListener('dragleave', (e) => {
+      if (!tieneArchivos(e)) return;
+      capas = Math.max(0, capas - 1);
+      if (!capas) document.body.classList.remove('arrastrando');
+    });
+    document.addEventListener('drop', () => {
+      capas = 0;
+      document.body.classList.remove('arrastrando');
+    });
   }
 
   // ---------------------------------------------------------------- historial: "atrás"
@@ -1053,6 +1213,7 @@
   }
 
   function alElegirDelMenu(destino) {
+    if (destino === 'conversaciones' && esEscritorio()) { enfocarBuscadorLateral(); return; }     // en pantalla ancha los chats ya están en la lateral
     if (destino === 'conversaciones') { abrirHoja('hoja-historial'); return; }     // una hoja reemplaza a la otra: no apila entradas
     cerrarHojas();
     if (destino === 'inicio') {
@@ -1446,6 +1607,8 @@
     const insignia = $('#novedades-insignia');
     insignia.hidden = n === 0;
     insignia.textContent = String(n);
+    const enLateral = $('#lateral-insignia');
+    if (enLateral) { enLateral.hidden = n === 0; enLateral.textContent = String(n); }
   }
 
   async function cargarNoticias() {
@@ -2668,17 +2831,22 @@
     // El tiempo que tardó en conectar queda a la vista a propósito: es lo que hay que comparar al medir, no adivinar.
     const tiempo = T.enlinea > T.inicio && T.inicio ? ` · conectó en ${((T.enlinea - T.inicio) / 1000).toFixed(1).replace('.', ',')} s` : '';
     el.textContent = S.conectado === true ? `PC en línea${tiempo}` : S.conectado === false ? 'PC sin conexión' : 'Conectando con la PC…';
+    const lateral = $('#lateral-conexion');
+    if (lateral) {
+      lateral.className = 'lateral-conexion ' + (S.conectado === true ? 'conectado' : S.conectado === false ? 'sin-conexion' : 'conectando');
+      lateral.querySelector('span').textContent = S.conectado === true ? 'PC en línea' : S.conectado === false ? 'PC sin conexión' : 'Conectando…';
+    }
   }
 
   // Las tarjetas del inicio se renuevan solas mientras se mira. Luz no se pide cada vez: consulta a la Raspberry y puede tardar hasta 30 s.
   let turnoInicio = 0;
   async function cargarEstadoInicio() {
     const turno = ++turnoInicio;
-    if (S.vista !== 'inicio' || document.hidden || S.conectado !== true) return;
+    if ((S.vista !== 'inicio' && !panelCasaVisible()) || document.hidden || S.conectado !== true) return;
     const tareas = [cargarPc(), cargarAgentes(), cargarNoticias()];     // las Novedades solo para la insignia del menú
     if (!S.luzLeida || Date.now() - S.luzLeida > LUZ_FRESCA_MS) tareas.push(cargarLuz());
     await Promise.allSettled(tareas);
-    if (turno !== turnoInicio || S.vista !== 'inicio') return;
+    if (turno !== turnoInicio || (S.vista !== 'inicio' && !panelCasaVisible())) return;
     await pausa(REFRESCO_INICIO_MS);
     if (turno === turnoInicio) cargarEstadoInicio();
   }
@@ -2719,6 +2887,7 @@
   function filaConversacion(c, enHistorial) {
     const boton = document.createElement('button');
     boton.className = 'fila' + (enHistorial && c.id === S.sesion && !S.soloLectura ? ' actual' : '');
+    boton.dataset.origen = c.origen || '';
     const icono = document.createElement('span');
     icono.className = 'fila-icono';
     icono.innerHTML = c.origen === 'app' ? ICONOS.chat : ICONOS.campana;     // los de Telegram y avisos se distinguen sin leer la línea de abajo
@@ -2751,6 +2920,7 @@
     if (pintar) {
       pintarInicio();
       if ($('#hoja-historial').classList.contains('abierta')) pintarHistorial();
+      acomodarEscritorio();        // lista de la lateral y título del chat (el HUD le pone nombre después de la primera respuesta)
     }
   }
 
@@ -3688,7 +3858,7 @@
     $$('#hoja-menu .fila').forEach((f) => f.addEventListener('click', () => alElegirDelMenu(f.dataset.destino)));
     $('#btn-nueva-barra').addEventListener('click', () => (S.vista === 'mini' ? nuevoChatMini() : nuevaConversacion()));
     $('#btn-borrar-chat').addEventListener('click', borrarChatActual);
-    $('#ver-todo').addEventListener('click', () => abrirHoja('hoja-historial'));
+    $('#ver-todo').addEventListener('click', () => alElegirDelMenu('conversaciones'));
     $('#continuar').addEventListener('click', () => irAChat());
     $('#btn-nueva').addEventListener('click', () => nuevaConversacion());
     $('#btn-nueva-lectura').addEventListener('click', () => nuevaConversacion());
@@ -3734,7 +3904,9 @@
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') atras();
+      else atajoEscritorio(e);
     });
+    cablearEscritorio();
 
     window.addEventListener('popstate', alGestoAtras);
 

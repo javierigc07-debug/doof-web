@@ -787,15 +787,8 @@ body.con-hoja .vista { overflow: hidden; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
 
-/* ---------------------------------------------------------------- pantallas grandes */
-@media (min-width: 700px) {
-  #app {
-    border-inline: 1px solid var(--borde-suave);
-    box-shadow: 0 0 90px rgba(0, 0, 0, .65);
-  }
-  .mensajes { padding-inline: 26px; }
-  .msg.usuario { font-size: 15.5px; }
-}
+/* Pantallas grandes: al final de la hoja ("escritorio"), para que pise lo de cada sección sin subir especificidad. */
+.barra-lateral, .panel-casa { display: none; }
 
 /* ---------------------------------------------------------------- aprobaciones con huella */
 .aprobaciones { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; max-height: 45dvh; overflow-y: auto; }
@@ -1254,3 +1247,343 @@ body[data-vista="agente-p"] #compositor {
 /* Bote de borrar el chat abierto: se pone rojo tras el primer toque. */
 .icono.confirmar { color: var(--rojo); background: rgba(232, 120, 138, .14); }
 .icono[hidden] { display: none; }
+
+/* ================================================================ escritorio
+   La PC dejó de ver un teléfono estirado. Tres tamaños:
+   · < 700 px: el teléfono, sin cambios (nada de abajo aplica).
+   · 700-1099: riel de íconos a la izquierda, contenido centrado, hojas como diálogos.
+   · ≥ 1100: lateral con los chats, lectura a ~72 caracteres y, mientras se conversa, el estado de la casa a la derecha.
+   La grilla la arma #app; las vistas son las mismas de siempre, solo cambian de sitio y de ancho. */
+
+/* Arrastrar un archivo sobre la ventana (vale en cualquier ancho; en el teléfono nunca aparece). */
+.soltar {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 6, 14, .66);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s ease;
+}
+.soltar > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 34px 52px 30px;
+  border: 1.5px dashed var(--acento);
+  border-radius: var(--r-xl);
+  background: var(--hoja);
+  text-align: center;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+  transform: scale(.97);
+  transition: transform .26s var(--curva);
+}
+.soltar svg { width: 30px; height: 30px; margin-bottom: 6px; fill: none; stroke: var(--acento-claro); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.soltar b { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.soltar small { font-size: 12.5px; color: var(--tenue); }
+body.arrastrando .soltar { opacity: 1; }
+body.arrastrando .soltar > div { transform: none; }
+
+@media (min-width: 700px) {
+  :root { --riel: 72px; --lectura: 760px; --contenido: 860px; }
+
+  html, body { background: var(--fondo); }
+  ::selection { background: rgba(91, 140, 255, .36); color: var(--texto); }
+  input, textarea { caret-color: var(--acento-claro); }
+  :where(button, a, summary, [tabindex]):focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+  :where(.fila, .lateral-item):focus-visible { outline-offset: -2px; }
+
+  #app {
+    display: grid;
+    grid-template-columns: var(--riel) minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    max-width: none;
+    background:
+      radial-gradient(60% 50% at 58% -14%, rgba(91, 140, 255, .14), transparent 66%),
+      var(--fondo);
+  }
+  #barra { grid-column: 2; grid-row: 1; padding-inline: 14px; }
+  #banda { grid-column: 2; grid-row: 2; }
+  #vistas { grid-column: 2; grid-row: 3; }
+  #compositor { grid-column: 2; grid-row: 4; justify-self: center; width: 100%; max-width: calc(var(--lectura) + 56px); padding-inline: 28px; background: none; }
+  #compositor .pista { margin-top: 7px; }
+
+  /* La navegación ya está a la vista: el menú de tres rayas sobra. En Inicio la barra entera sobra (el saludo es el título). */
+  #btn-historial { display: none; }
+  body[data-vista="inicio"] #barra { display: none; }
+
+  /* ---------- lateral, modo riel */
+  .barra-lateral {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+    padding: 12px;
+    background: var(--fondo-hondo);
+    border-right: 1px solid var(--borde-suave);
+  }
+  .barra-lateral > *, .lateral-nav > * { flex-shrink: 0; }
+  .lateral-marca { display: flex; align-items: center; justify-content: center; gap: 10px; height: 44px; margin-bottom: 6px; }
+  .lateral-marca strong { display: none; font-size: 16px; font-weight: 650; letter-spacing: -.015em; }
+  .barra-lateral svg:not(.ojo) { width: 20px; height: 20px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .barra-lateral kbd { font: 500 11px/1 var(--fuente); letter-spacing: .02em; color: var(--tenue); white-space: nowrap; }
+
+  .lateral-nueva {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    height: 44px;
+    padding: 0 12px;
+    border-radius: var(--r-m);
+    background: var(--acento-suave);
+    border: 1px solid rgba(91, 140, 255, .32);
+    color: var(--acento-texto);
+    font-size: 14px;
+    font-weight: 600;
+    transition: background .15s, border-color .15s;
+  }
+  .lateral-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+  .lateral-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    height: 42px;
+    padding: 0 12px;
+    border-radius: var(--r-s);
+    color: var(--muted);
+    font-size: 14px;
+    text-align: left;
+    transition: background .15s, color .15s;
+  }
+  .lateral-item.actual { background: var(--superficie); color: var(--texto); }
+  .lateral-item.actual svg { color: var(--acento-claro); }
+  .lateral-agente-p.actual svg { color: var(--acento-p); }
+  /* En el riel el nombre no se ve, pero lo siguen leyendo los lectores de pantalla. */
+  .lateral-item > span, .lateral-nueva > span, .lateral-nueva > kbd {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .lateral-insignia {
+    position: absolute;
+    top: 5px;
+    right: 8px;
+    min-width: 17px;
+    padding: 2px 5px;
+    border-radius: 999px;
+    font: 650 10.5px/1.1 var(--fuente);
+    font-style: normal;
+    text-align: center;
+    color: var(--sobre-acento);
+    background: var(--acento);
+  }
+  .lateral-chats { display: none; }
+  .lateral-pie { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--borde-suave); }
+  .lateral-conexion { display: flex; align-items: center; gap: 8px; min-width: 0; height: 24px; font-size: 12px; color: var(--tenue); }
+  .lateral-conexion i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+  .lateral-conexion.conectado i { background: var(--verde); }
+  .lateral-conexion.conectando i { background: var(--ambar); animation: pulso 1.6s infinite; }
+  .lateral-conexion.sin-conexion i { background: var(--rojo); }
+  .lateral-conexion.sin-conexion { color: var(--rojo-claro); }
+  .lateral-conexion span { display: none; }
+
+  /* ---------- contenido centrado */
+  #vista-inicio, .seccion-casa { padding-inline: max(8px, calc((100% - var(--contenido)) / 2)); }
+  #vista-mini, #vista-agente-p { padding-inline: max(0px, calc((100% - var(--contenido)) / 2)); }
+  .mensajes { padding-inline: max(28px, calc((100% - var(--lectura)) / 2)); padding-top: 26px; gap: 20px; }
+  .msg.usuario { font-size: 15.5px; max-width: min(84%, 620px); }
+
+  /* ---------- inicio como tablero */
+  #vista-inicio { padding-top: 34px; padding-bottom: 40px; }
+  .inicio-cab { gap: 18px; padding: 0 16px 8px; }
+  .inicio-cab .ojo.grande { width: 60px; height: 60px; }
+  .inicio-saludo h1 { font-size: 30px; letter-spacing: -.035em; }
+  .fecha { margin-top: 5px; font-size: 14px; }
+  .estado-casa { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 22px; }
+  .mosaico { min-height: 112px; padding: 14px 16px 15px; }
+  .mosaico-valor { font-size: 19px; }
+  /* Agentes deja de ser una fila suelta y se vuelve una tarjeta más, con la misma lectura: nombre arriba, estado grande. */
+  .fila-agentes {
+    grid-column: auto;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    align-content: start;
+    gap: 0 8px;
+    min-height: 112px;
+    padding: 14px 16px 15px;
+  }
+  .fila-agentes .mosaico-punto { margin-top: 5px; }
+  .fila-agentes-texto { display: contents; }
+  .fila-agentes-texto strong { grid-column: 2; grid-row: 1; font-size: 12.5px; font-weight: 550; color: var(--muted); letter-spacing: 0; }
+  .fila-agentes .flecha { grid-column: 3; grid-row: 1; }
+  .fila-agentes-texto small { grid-column: 1 / -1; grid-row: 2; margin-top: 10px; font-size: 19px; font-weight: 650; line-height: 1.2; letter-spacing: -.015em; color: var(--texto); white-space: normal; }
+  .fila-agentes .flecha { margin-top: 1px; }
+  .chips { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-top: 14px; }
+  .chips button { min-height: 46px; }
+  .continuar { width: calc(100% - 32px); margin-top: 14px; padding: 13px 16px; }
+  .seccion { margin-top: 32px; padding-inline: 4px; }
+  #recientes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 10px; padding: 0 4px; }
+  #recientes .fila { border-radius: var(--r-m); padding: 11px 14px; }
+  #recientes .vacio { grid-column: 1 / -1; }
+
+  /* ---------- hojas: en pantalla ancha son diálogos centrados, no cajones que suben del borde */
+  .hoja { align-items: center; padding: 28px; }
+  .hoja-caja {
+    max-width: 520px;
+    max-height: min(80dvh, 720px);
+    padding-bottom: 14px;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-xl);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .6);
+    opacity: 0;
+    transform: translateY(12px) scale(.98);
+    transition: transform .28s var(--curva), opacity .18s ease;
+  }
+  .hoja.abierta .hoja-caja { opacity: 1; transform: none; }
+  .hoja-caja.corta { max-height: min(62dvh, 520px); }
+  .hoja .asa { display: none; }
+  .hoja-cab { padding-top: 14px; }
+  .hoja.lateral { align-items: center; justify-content: center; }
+  /* El menú de tres rayas queda como "Ajustes": las secciones ya están en la lateral. */
+  .hoja-caja.menu {
+    width: 380px;
+    height: auto;
+    max-height: min(80dvh, 640px);
+    padding: 4px 0 16px;
+    border: 1px solid var(--borde);
+    border-radius: var(--r-xl);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .6);
+    transform: translateY(12px) scale(.98);
+  }
+  .hoja-caja.menu .menu-lista { display: none; }
+  .hoja-caja.menu .menu-pie { padding-top: 4px; border-top: 0; }
+}
+
+/* Solo el riel: el nombre de cada sección aparece al pasar el ratón o al llegar con el teclado. */
+@media (min-width: 700px) and (max-width: 1099.98px) {
+  .lateral-item::after, .lateral-nueva::after {
+    content: attr(data-nombre);
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 50%;
+    z-index: 40;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: var(--superficie-2);
+    border: 1px solid var(--borde);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .45);
+    color: var(--texto);
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-4px, -50%);
+    transition: opacity .12s ease, transform .16s var(--curva);
+  }
+  .lateral-item:hover::after, .lateral-nueva:hover::after { opacity: 1; transform: translate(0, -50%); transition-delay: .25s; }
+  .lateral-item:focus-visible::after, .lateral-nueva:focus-visible::after { opacity: 1; transform: translate(0, -50%); }
+}
+
+@media (min-width: 1100px) {
+  :root { --lateral: 280px; --panel: 312px; }
+
+  #app { grid-template-columns: var(--lateral) minmax(0, 1fr); }
+  body.con-panel #app { grid-template-columns: var(--lateral) minmax(0, 1fr) var(--panel); }
+
+  /* ---------- lateral completa */
+  /* Ventana bajita: se desplaza la lateral entera antes que aplastar algo. (En el riel no: recortaría las etiquetas flotantes.) */
+  .barra-lateral { padding: 14px 12px 12px; gap: 2px; overflow: hidden auto; scrollbar-width: none; }
+  .lateral-marca { justify-content: flex-start; padding: 0 8px; margin-bottom: 8px; }
+  .lateral-marca strong { display: block; }
+  .lateral-nueva { justify-content: flex-start; }
+  .lateral-nav { margin-top: 12px; }
+  .lateral-item { justify-content: flex-start; height: 38px; }
+  .lateral-item > span, .lateral-nueva > span, .lateral-nueva > kbd { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+  .lateral-item > span, .lateral-nueva > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .lateral-nueva > kbd { color: var(--acento-claro); opacity: .85; }
+  .lateral-insignia { position: static; }
+  .lateral-item.solo-riel { display: none; }
+
+  .lateral-chats { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 180px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--borde-suave); }
+  .lateral-buscar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    margin: 0 0 4px;
+    padding: 0 10px;
+    border-radius: var(--r-s);
+    background: var(--superficie);
+    border: 1px solid var(--borde-suave);
+    color: var(--tenue);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .lateral-buscar svg:not(.ojo) { width: 16px; height: 16px; }
+  .lateral-buscar:focus-within { border-color: rgba(91, 140, 255, .7); box-shadow: 0 0 0 3px var(--acento-suave); }
+  #lateral-buscar { flex: 1; min-width: 0; height: 100%; padding: 0; background: none; border: 0; outline: none; font-size: 13.5px; color: var(--texto); }
+  #lateral-buscar::placeholder { color: var(--tenue); }
+  #lateral-buscar::-webkit-search-cancel-button { display: none; }
+  .lateral-buscar:focus-within kbd { visibility: hidden; }
+
+  .lateral-lista { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 -6px; padding: 0 6px 6px; scrollbar-width: thin; scrollbar-color: var(--borde) transparent; }
+  .lateral-lista .grupo { padding: 14px 10px 5px; font-size: 11.5px; letter-spacing: 0; text-transform: none; font-weight: 600; color: var(--tenue); }
+  .lateral-lista .fila { gap: 8px; padding: 0 10px; min-height: 36px; border-radius: var(--r-s); }
+  .lateral-lista .fila-icono, .lateral-lista .flecha, .lateral-lista .fila-texto small { display: none; }
+  .lateral-lista .fila:not([data-origen="app"]) .fila-icono { display: grid; width: 18px; height: 18px; border: 0; background: none; }
+  .lateral-lista .fila:not([data-origen="app"]) .fila-icono svg { width: 15px; height: 15px; }
+  .lateral-lista .fila-texto b { font-size: 13.5px; font-weight: 450; color: var(--texto-2); }
+  .lateral-lista .fila.actual { background: var(--superficie); }
+  .lateral-lista .fila.actual b { color: var(--texto); font-weight: 550; }
+  .lateral-vacio { margin: 10px 10px 0; font-size: 12.5px; line-height: 1.5; color: var(--tenue); }
+
+  .lateral-pie { flex-direction: row; justify-content: space-between; gap: 8px; padding: 10px 2px 0; }
+  .lateral-conexion { padding-left: 8px; }
+  .lateral-conexion span { display: inline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lateral-ajustes { width: auto; height: 36px; padding: 0 10px; gap: 8px; font-size: 13px; }
+  .lateral-ajustes > span { flex: none; }
+
+  /* ---------- panel de la casa (solo mientras se conversa) */
+  .panel-casa {
+    grid-column: 3;
+    grid-row: 1 / -1;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 16px;
+    background: var(--fondo-hondo);
+    border-left: 1px solid var(--borde-suave);
+    scrollbar-width: thin;
+    scrollbar-color: var(--borde) transparent;
+  }
+  body.con-panel .panel-casa { display: flex; }
+  .panel-casa h2 { margin: 2px 4px; font-size: 13px; font-weight: 650; color: var(--texto-2); }
+  .panel-casa .estado-casa { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 0; }
+  .panel-casa .mosaico, .panel-casa .fila-agentes { min-height: 0; }
+  .panel-casa .mosaico-medidor { margin-top: 10px; }
+}
+
+/* Ratón de verdad: lo que en el teléfono era un "toque" ahora responde antes de clicar. */
+@media (hover: hover) and (pointer: fine) {
+  .icono:hover, .icono-caja:hover { background: var(--superficie); color: var(--texto); }
+  .mosaico:hover, .fila-agentes:hover { background: var(--superficie-2); border-color: var(--borde); }
+  .chips button:hover { border-color: rgba(91, 140, 255, .45); color: var(--texto); }
+  .continuar:hover { border-color: rgba(91, 140, 255, .6); }
+  .fila:hover { background: var(--superficie); }
+  .fila:hover .flecha { opacity: .9; }
+  .enlace:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .menu-boton:hover { background: var(--superficie); }
+  .lateral-item:hover { background: var(--superficie); color: var(--texto); }
+  .lateral-nueva:hover { background: rgba(91, 140, 255, .24); border-color: rgba(91, 140, 255, .55); }
+}

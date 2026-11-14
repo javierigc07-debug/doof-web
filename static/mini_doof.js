@@ -8,9 +8,14 @@
 (() => {
   'use strict';
 
-  const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+  // `guarda`: con sesión persistente (id fijo, sin "clean session"), EMQX guarda lo que la Pi publique mientras el teléfono no está conectado, y lo
+  // entrega al volver. Medido el 14 nov 2026 con mensajes QoS 0 como los de la Pi: EMQX los guarda, HiveMQ no. Sin esto, salir de la app mientras
+  // Charlene pensaba perdía la respuesta.
+  const BROKERS = [{ url: 'wss://broker.emqx.io:8084/mqtt', guarda: true }, { url: 'wss://broker.hivemq.com:8884/mqtt', guarda: false }];
   const BASE_DE_DATOS = 'mini_doof';
+  const VERSION_BASE = 2;
   const ALMACEN = 'llave';
+  const ALMACEN_CHATS = 'chats';
   const CLAVE_LLAVE = 'actual';
   const MARCA_INSTALADA = 'mini_doof_instalada';    // IndexedDB es asíncrona, y la interfaz necesita saberlo al pintar
   const SOBRE_CON_PIN = 'mini_doof_sobre';          // versión anterior: una llave cifrada con PIN, que ya nadie va a abrir
@@ -55,19 +60,26 @@
   // ---------------------------------------------------------------- llave
   function abrirBase() {
     return new Promise((listo, fallar) => {
-      const pedido = indexedDB.open(BASE_DE_DATOS, 1);
-      pedido.onupgradeneeded = () => pedido.result.createObjectStore(ALMACEN);
+      const pedido = indexedDB.open(BASE_DE_DATOS, VERSION_BASE);
+      // La versión 1 solo tenía la llave: subir de versión agrega los chats sin tocarla.
+      pedido.onupgradeneeded = () => {
+        const base = pedido.result;
+        if (!base.objectStoreNames.contains(ALMACEN)) base.createObjectStore(ALMACEN);
+        if (!base.objectStoreNames.contains(ALMACEN_CHATS)) base.createObjectStore(ALMACEN_CHATS, { keyPath: 'id' });
+      };
       pedido.onsuccess = () => listo(pedido.result);
       pedido.onerror = () => fallar(pedido.error);
     });
   }
 
-  async function operarLlave(modo, operar) {
+  const operarLlave = (modo, operar) => operarEn(ALMACEN, modo, operar);
+
+  async function operarEn(almacenNombre, modo, operar) {
     const base = await abrirBase();
     try {
       return await new Promise((listo, fallar) => {
-        const transaccion = base.transaction(ALMACEN, modo);
-        const pedido = operar(transaccion.objectStore(ALMACEN));
+        const transaccion = base.transaction(almacenNombre, modo);
+        const pedido = operar(transaccion.objectStore(almacenNombre));
         transaccion.oncomplete = () => listo(pedido.result);
         transaccion.onerror = () => fallar(transaccion.error);
         transaccion.onabort = () => fallar(transaccion.error);
@@ -103,6 +115,15 @@
     return !!leer(MARCA_INSTALADA);
   }
 
+  // ---------------------------------------------------------------- chats guardados
+  // En el teléfono y no en la Pi: la Pi solo recuerda unos minutos de charla, y la app debe mostrarlos aunque la Raspberry esté caída.
+  const chats = {
+    listar: async () => ((await operarEn(ALMACEN_CHATS, 'readonly', (a) => a.getAll())) || []).sort((x, y) => (y.actualizado || '').localeCompare(x.actualizado || '')),
+    leer: (id) => operarEn(ALMACEN_CHATS, 'readonly', (a) => a.get(id)),
+    guardar: (chat) => operarEn(ALMACEN_CHATS, 'readwrite', (a) => a.put(chat)),
+    borrar: (id) => operarEn(ALMACEN_CHATS, 'readwrite', (a) => a.delete(id)),
+  };
+
   // ---------------------------------------------------------------- MQTT
   function cadena(valor) {
     const bytes = texto.encode(valor);
@@ -129,7 +150,7 @@
   }
 
   class Broker {
-    constructor(url, temaSalida, alMensaje) {
+    constructor(url, temaSalida, alMensaje, idFijo) {
       this.listo = false;
       this.cerrado = false;
       this.temaSalida = temaSalida;
@@ -138,7 +159,8 @@
       this.ws = new WebSocket(url, 'mqtt');
       this.ws.binaryType = 'arraybuffer';
       this.ws.onopen = () => {
-        this.enviar(paquete(0x10, cadena('MQTT'), Uint8Array.from([4, 2, 0, 60]), cadena('md' + alfanumerico(16))));
+        // Con id fijo va sin "clean session" (0 en vez de 2): el broker conserva la suscripción y guarda lo que llegue mientras tanto.
+        this.enviar(paquete(0x10, cadena('MQTT'), Uint8Array.from([4, idFijo ? 0 : 2, 0, 60]), cadena(idFijo || 'md' + alfanumerico(16))));
       };
       this.ws.onmessage = (e) => this.recibir(new Uint8Array(e.data));
       this.ws.onclose = () => this.marcarCerrado();
@@ -159,7 +181,9 @@
       this.enviar(paquete(0x30, cadena(tema), texto.encode(carga)));
     }
 
+    // DISCONNECT antes de cerrar: así el broker sabe ya que el teléfono se fue y empieza a guardar, en vez de mandarle a un socket que se va a congelar.
     cerrar() {
+      this.enviar(Uint8Array.from([0xE0, 0]));
       this.marcarCerrado();
       try { this.ws.close(); } catch (e) { /* ya estaba */ }
     }
@@ -213,7 +237,8 @@
       throw new Error('Este teléfono ya no tiene la llave.');
     }
     cerrar();
-    sesion = { llave: guardada.llave, tema: guardada.tema, id: idDelTelefono(), brokers: new Map(), pendientes: new Map(), vistos: new Set() };
+    sesion = { llave: guardada.llave, tema: guardada.tema, id: idDelTelefono(), brokers: new Map(), pendientes: new Map(), huerfanos: new Map(),
+               vistos: new Set(), dormida: false };
   }
 
   function cerrar() {
@@ -221,6 +246,53 @@
     sesion.brokers.forEach((b) => b.cerrar());
     sesion.pendientes.forEach((p) => { clearTimeout(p.reloj); p.fallar(new Error('Charlene no responde')); });
     sesion = null;
+  }
+
+  // El reloj de cada espera se detiene mientras la app duerme: congelada, al despertar vencería de golpe antes de que llegue lo que EMQX guardó.
+  function armar(pendiente, ms) {
+    clearTimeout(pendiente.reloj);
+    pendiente.espera = ms;
+    if (sesion && !sesion.dormida) pendiente.reloj = setTimeout(pendiente.vencer, ms);
+  }
+
+  // Al salir de la app: se desconecta limpio y lo pedido sigue pendiente. Lo que la Pi conteste mientras tanto lo guarda EMQX.
+  function dormir() {
+    if (!sesion || sesion.dormida) return;
+    sesion.dormida = true;
+    sesion.brokers.forEach((b) => b.cerrar());
+    sesion.brokers.clear();
+    sesion.pendientes.forEach((p) => clearTimeout(p.reloj));
+    sesion.huerfanos.forEach((p) => clearTimeout(p.reloj));
+  }
+
+  async function despertar() {
+    const propia = sesion;
+    if (!propia || !propia.dormida) return;
+    propia.dormida = false;
+    propia.pendientes.forEach((p) => armar(p, p.espera || ESPERA_RESPUESTA_MS));
+    propia.huerfanos.forEach((p) => armar(p, p.espera || ESPERA_CHARLA_MS));
+    if (propia.pendientes.size) await conectarBrokers(propia);
+  }
+
+  // Conectarse solo para recibir lo que EMQX guardó (respuestas a algo pedido antes de que el sistema cerrara la app).
+  async function escuchar() {
+    const propia = sesion;
+    if (!propia) return;
+    if (propia.dormida) await despertar();
+    await conectarBrokers(propia);
+  }
+
+  // Lo que llega sin nadie esperándolo es la respuesta a algo que se pidió antes de que el sistema cerrara la app del todo: EMQX la guardó. Se arma
+  // igual que una esperada y se le entrega a la app, que sabe a qué chat pertenece (o la ignora: también llega lo pedido desde otra pantalla).
+  let alResponderTarde = null;
+  function huerfano(propia, n) {
+    if (!propia.huerfanos.has(n)) {
+      propia.huerfanos.set(n, {
+        cumplir: (mensaje) => { if (alResponderTarde) alResponderTarde(mensaje); },
+        vencer: () => propia.huerfanos.delete(n),
+      });
+    }
+    return propia.huerfanos.get(n);
   }
 
   async function alRecibir(propia, carga) {
@@ -233,8 +305,8 @@
     } catch (e) {
       return;     // el tema es público: lo que no abre con la llave no es de la Pi
     }
-    const pendiente = propia.pendientes.get(mensaje.n);
-    if (!pendiente) return;
+    if (typeof mensaje.n !== 'string') return;
+    const pendiente = propia.pendientes.get(mensaje.n) || huerfano(propia, mensaje.n);
     // Llega por los dos brokers. "k" numera cada parcial (14 nov 2026): sin él, todo parcial después del primero se
     // descartaba como repetido, y un dibujo viaja en varios trozos.
     const marca = `${mensaje.n}|${!!mensaje.fin}|${mensaje.k ?? ''}`;
@@ -243,11 +315,12 @@
     clearTimeout(pendiente.reloj);
     if (typeof mensaje.img === 'string') {   // un trozo de un dibujo de la Xbox: se junta, no se muestra
       (pendiente.trozos = pendiente.trozos || [])[mensaje.parte] = mensaje.img;
-      pendiente.reloj = setTimeout(pendiente.vencer, ESPERA_CHARLA_MS);
+      armar(pendiente, ESPERA_CHARLA_MS);
       return;
     }
     if (mensaje.fin) {
       propia.pendientes.delete(mensaje.n);
+      propia.huerfanos.delete(mensaje.n);
       if (mensaje.img_partes) {
         // La Pi manda los trozos antes que el final por la misma conexión: si falta alguno, se perdió en el camino.
         const trozos = pendiente.trozos || [];
@@ -258,16 +331,17 @@
       }
       pendiente.cumplir(mensaje);
     } else {
-      pendiente.reloj = setTimeout(pendiente.vencer, ESPERA_CHARLA_MS);
+      armar(pendiente, ESPERA_CHARLA_MS);
       if (pendiente.alParcial) pendiente.alParcial(mensaje);
     }
   }
 
   async function conectarBrokers(propia) {
-    const salida = `${propia.tema}/out/${propia.id}`;
-    for (const url of BROKERS) {
+    // Cada chat le habla a la Pi con su propio id (la Pi recuerda la charla por id): se escuchan todos con un comodín.
+    const salida = `${propia.tema}/out/+`;
+    for (const { url, guarda } of BROKERS) {
       const actual = propia.brokers.get(url);
-      if (!actual || actual.cerrado) propia.brokers.set(url, new Broker(url, salida, (carga) => alRecibir(propia, carga)));
+      if (!actual || actual.cerrado) propia.brokers.set(url, new Broker(url, salida, (carga) => alRecibir(propia, carga), guarda ? 'md' + propia.id : null));
     }
     const listos = () => [...propia.brokers.values()].filter((b) => b.listo);
     const limite = Date.now() + ESPERA_PRIMER_BROKER_MS;
@@ -282,8 +356,10 @@
   async function pedir(accion, opciones = {}) {
     const propia = sesion;
     if (!propia) throw new Error('Charlene no responde');
+    if (propia.dormida) await despertar();
     const brokers = await conectarBrokers(propia);
     if (propia !== sesion || !brokers.length) throw new Error('Charlene no responde');
+    const destino = /^[A-Za-z0-9]{8,64}$/.test(opciones.chat || '') ? opciones.chat : propia.id;
     const n = alfanumerico(16);
     const peticion = { n, ts: Math.floor(Date.now() / 1000), accion };
     if (opciones.texto) peticion.texto = opciones.texto;
@@ -295,12 +371,18 @@
         propia.pendientes.delete(n);
         fallar(new Error('Charlene no responde'));
       };
-      propia.pendientes.set(n, { cumplir, fallar, vencer, alParcial: opciones.alParcial, reloj: setTimeout(vencer, ESPERA_RESPUESTA_MS) });
-      brokers.forEach((b) => b.publicar(`${propia.tema}/in/${propia.id}`, carga));
+      const pendiente = { cumplir, fallar, vencer, alParcial: opciones.alParcial };
+      propia.pendientes.set(n, pendiente);
+      armar(pendiente, ESPERA_RESPUESTA_MS);
+      if (opciones.alEnviar) opciones.alEnviar(n);      // la app lo guarda en el chat: si la cierran, la respuesta tardía sabe a dónde ir
+      brokers.forEach((b) => b.publicar(`${propia.tema}/in/${destino}`, carga));
     });
   }
 
   escribir(SOBRE_CON_PIN, '');
 
-  window.MiniDoof = { instalada, instalar, abrir, abierta: () => !!sesion, pedir, cerrar, temaDe };
+  window.MiniDoof = {
+    instalada, instalar, abrir, abierta: () => !!sesion, pedir, cerrar, temaDe, dormir, despertar, escuchar, chats,
+    alResponderTarde: (funcion) => { alResponderTarde = funcion; },
+  };
 })();

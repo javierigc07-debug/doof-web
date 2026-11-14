@@ -56,13 +56,15 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.14-0f86bb9763';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.14-d8d435795c';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
   const URL_DIRECCION = 'https://api.github.com/repos/javierigc07-debug/doof-web/contents/tunel.json?ref=tunel';
   const PATRON_TUNEL = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/;
   const ESPERA_NOVEDADES_S = 25;
+  // Con esto el puente sabe qué pantalla mira (teléfono, ventana de la PC): si ninguna, una respuesta de Doof llega por push.
+  const PANTALLA = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
   // Probar la dirección conocida no gasta nada, así que se hace seguido: esperar hasta 5 min aquí dejaba a Javier sin app con la PC ya de vuelta (6 nov 2026).
   const REINTENTOS_S = [5, 5, 10, 10, 15];
   // Lo que se espacia es leer la dirección publicada: GitHub da 60 lecturas por hora sin autenticar, y agotarlas dejaría a la app sin poder encontrar la PC cuando vuelva.
@@ -83,9 +85,11 @@
   const TIPO_RESPONDER = 'responder_agente';
   const MAX_RESPUESTA_AGENTE = 2000;      // el bot rechaza más que esto
   const MAX_TEXTO_MINI = 200;     // la Pi recorta lo que pase de ahí sin avisar
-  const MAX_MENSAJES_MINI = 30;
+  const MAX_MENSAJES_MINI = 200;      // por chat, guardado en el teléfono
   const ESPERA_ABRIR_MINI_MS = 15000;
-  const CERRAR_MINI_AL_OCULTAR_MS = 5 * 60 * 1000;
+  // Una respuesta que no llegó en esto ya no va a llegar: la Pi espera al modelo hasta 5 min (ESPERA_CHARLA_MS en mini_doof.js), y EMQX guarda lo que mande.
+  const ESPERA_TARDIA_MINI_MS = 7 * 60 * 1000;
+  const CLAVE_CHAT_MINI = 'mini_chat_actual';
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
   const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', presencia: 'Presencia', novedades: 'Novedades', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
 
@@ -815,7 +819,7 @@
     while (vuelta === S.vuelta) {
       await esperarVisible();
       try {
-        const d = await api(`/novedades?desde=${S.cursor}&espera=${ESPERA_NOVEDADES_S}`, {}, (ESPERA_NOVEDADES_S + 10) * 1000);
+        const d = await api(`/novedades?desde=${S.cursor}&espera=${ESPERA_NOVEDADES_S}&pantalla=${PANTALLA}`, {}, (ESPERA_NOVEDADES_S + 10) * 1000);
         if (vuelta !== S.vuelta) return;
         S.conectado = true;
         S.salud = !!d.hud;
@@ -846,7 +850,22 @@
     despertar();
     if (!$('#login').hidden || S.conectando) return;
     // El sistema pudo congelar la consulta abierta mientras la app estaba en segundo plano: esto no la espera.
-    if ((await probarBase(6000, true)) !== 'ok') conectar();
+    if ((await probarBase(6000, true)) !== 'ok') { conectar(); return; }
+    // Y la consulta larga que quedó abierta suele estar muerta: Android la deja colgando hasta su tiempo máximo (35 s), y la respuesta de Doof que
+    // llegó mientras tanto no aparecía hasta entonces (14 nov 2026). Se abre otra ya desde el mismo cursor: el buzón del puente guarda lo que llegó.
+    if (!S.conectando && S.conectado === true && S.cursor >= 0) bucleNovedades(++S.vuelta);
+  }
+
+  // Al salir de la app: el puente deja de contar esta pantalla y la próxima respuesta de Doof llega por push. keepalive porque la página se congela enseguida.
+  function avisarQueSeOculta() {
+    if ((ES_REMOTO && !S.base) || !S.token) return;
+    try {
+      fetch(S.base + '/api/oculta', {
+        method: 'POST', keepalive: true, cache: 'no-store', referrerPolicy: 'no-referrer',
+        headers: { 'Content-Type': 'application/json', 'X-Doof-Token': S.token },
+        body: JSON.stringify({ pantalla: PANTALLA }),
+      }).catch(() => {});
+    } catch (e) { /* sin aviso, el push sale igual cuando venza la consulta abierta */ }
   }
 
   // ---------------------------------------------------------------- estado visual
@@ -883,8 +902,10 @@
     $('#vista-mini').classList.toggle('activa', S.vista === 'mini');
     $('#vista-agente-p')?.classList.toggle('activa', S.vista === 'agente-p');
     $('#btn-atras').hidden = S.vista === 'inicio';
-    $('#btn-nueva-barra').hidden = S.vista !== 'chat';
-    $('#btn-borrar-chat').hidden = !(S.vista === 'chat' && S.sesion && !S.soloLectura);      // solo con un chat de la app abierto (los viejos de Telegram/HUD son de lectura)
+    $('#btn-nueva-barra').hidden = S.vista !== 'chat' && S.vista !== 'mini';
+    // Solo con un chat de la app abierto (los viejos de Telegram/HUD son de lectura), o uno de Charlene.
+    $('#btn-borrar-chat').hidden = !((S.vista === 'chat' && S.sesion && !S.soloLectura) || (S.vista === 'mini' && mini.chat));
+    $('#btn-chats-mini').hidden = !(S.vista === 'mini' && window.MiniDoof.instalada());
     $('#btn-historial').hidden = false;
     $('#barra-titulo').textContent = S.vista === 'chat' && S.soloLectura && S.inicioVista
       ? capitalizar(fechaLarga(new Date(S.inicioVista)))
@@ -1847,7 +1868,13 @@
     try { return JSON.parse(localStorage.getItem(CLAVE_MENU_MINI)) || null; } catch (e) { return null; }
   }
 
-  const mini = { mensajes: [], menu: menuGuardadoMini(), menuAlDia: false, grupo: 'PC', ocupado: false, confirmando: null, conexion: '', sinPc: false, relojAbrir: null, relojOcultar: null };
+  // `chat`: el que está en pantalla (null = uno nuevo que nace con el primer mensaje, como los de Doof). `enVuelo`: lo que espera esta página; lo
+  // demás que figure esperando quedó de una página que el sistema cerró, y solo puede llegar como respuesta tardía.
+  const mini = { chat: null, chats: [], enVuelo: new Set(), menu: menuGuardadoMini(), menuAlDia: false, grupo: 'PC', confirmando: null, conexion: '', sinPc: false, relojAbrir: null };
+  const MINI_SE_PERDIO = 'Esta respuesta no llegó: la app se cerró mientras la Raspberry contestaba y ya no la guarda. Pregúntamelo otra vez.';
+  const miniOcupado = () => !!mini.chat && mini.chat.mensajes.some((m) => m.esperando);
+  const idAlAzar = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+  const hayEsperasMini = () => mini.chats.some((c) => c.mensajes.some((m) => m.esperando));
 
   const pcCaida = () => S.conectado === false || !!S.pcFalla;
   const textoConexionMini = () => TEXTO_CONEXION_MINI[mini.conexion] || '';
@@ -1932,31 +1959,181 @@
     pintarAccionesMini();
   }
 
-  async function preguntarAMini(accion, titulo, texto) {
-    const respuesta = { rol: 'bot', texto: '', esperando: true };
-    mini.mensajes.push({ rol: 'usuario', texto: titulo }, respuesta);
-    mini.mensajes = mini.mensajes.slice(-MAX_MENSAJES_MINI);
-    mini.ocupado = true;
+  // ---- chats guardados (en el teléfono: ver MiniDoof.chats)
+  function guardarChatMini(chat) {
+    chat.actualizado = new Date().toISOString();
+    window.MiniDoof.chats.guardar(chat).catch(() => { /* sin almacenamiento, el chat vive mientras la app siga abierta */ });
+    mini.chats = [chat, ...mini.chats.filter((c) => c.id !== chat.id)];
+  }
+
+  function usarChatMini(chat) {
+    mini.chat = chat;
+    guardar(CLAVE_CHAT_MINI, chat ? chat.id : '');
+    if (chat) revisarEsperasMini(chat);
+    if (S.vista === 'mini') actualizarBarra();
+  }
+
+  // Lo que figura esperando sin que esta página lo espere quedó de una que el sistema cerró: puede llegar todavía (EMQX lo guardó) hasta que se vence.
+  function revisarEsperasMini(chat) {
+    let cambio = false;
+    for (const m of chat.mensajes) {
+      if (!m.esperando || mini.enVuelo.has(m.n)) continue;
+      const falta = (m.enviado || 0) + ESPERA_TARDIA_MINI_MS - Date.now();
+      if (falta > 0) {
+        setTimeout(() => { revisarEsperasMini(chat); if (mini.chat === chat) pintarMini(); }, falta + 1000);
+      } else {
+        Object.assign(m, { esperando: false, fallo: true, texto: MINI_SE_PERDIO });
+        cambio = true;
+      }
+    }
+    if (cambio) guardarChatMini(chat);
+  }
+
+  async function cargarChatsMini() {
+    try { mini.chats = await window.MiniDoof.chats.listar(); } catch (e) { mini.chats = []; }
+    if (!mini.chat) {
+      const guardado = mini.chats.find((c) => c.id === leerGuardado(CLAVE_CHAT_MINI));
+      if (guardado) usarChatMini(guardado);
+    }
+    mini.chats.forEach(revisarEsperasMini);
+    if (S.vista === 'mini') pintarMini();
+    escucharSiHayEsperasMini();
+  }
+
+  // Si quedó algo esperando (la app se cerró del todo), hay que conectarse para que EMQX entregue lo que guardó, aunque no se abra Charlene.
+  async function escucharSiHayEsperasMini() {
+    if (!hayEsperasMini() || !window.MiniDoof.instalada()) return;
+    try {
+      if (!window.MiniDoof.abierta()) await window.MiniDoof.abrir();
+      await window.MiniDoof.escuchar();
+    } catch (e) { /* sin llave o sin red: se reintenta al volver a la app */ }
+  }
+
+  function completarRespuestaMini(respuesta, final) {
+    // La Pi le agrega a cada respuesta "💭 Charla libre: puedo inventar cosas...". Javier no la quiere en cada mensaje (6 nov 2026): el saludo ya lo dice una vez.
+    respuesta.texto = (final.texto || '').replace(/^\s*💭.*$/gmu, '').trim();
+    if (final.imagen) respuesta.imagen = final.imagen;   // un dibujo de la Xbox (data URL ya armada en mini_doof.js)
+    if (final.imagenIncompleta) respuesta.texto += '\n(El dibujo no llegó completo. Pídemelo otra vez.)';
+    respuesta.esperando = false;
+    delete respuesta.fallo;
+  }
+
+  // La respuesta a algo pedido antes de que el sistema cerrara la app (o que se dio por perdido): va a su chat aunque no sea el que está en pantalla.
+  async function alResponderTardeMini(final) {
+    const esSuya = (c) => c.mensajes.find((m) => m.n === final.n && (m.esperando || m.fallo));
+    let chat = mini.chat && esSuya(mini.chat) ? mini.chat : null;
+    if (!chat) {
+      const todos = await window.MiniDoof.chats.listar().catch(() => []);
+      chat = todos.find(esSuya);
+      if (!chat) return;      // pedido desde otra pantalla, o un botón sin chat
+    }
+    completarRespuestaMini(esSuya(chat), final);
+    guardarChatMini(chat);
+    ponerConexionMini('lista');
+    if (mini.chat === chat && S.vista === 'mini') pintarMini();
+    else avisar('Charlene te respondió', 'Ver', () => abrirChatMini(chat.id));
+  }
+
+  function nuevoChatMini() {
+    usarChatMini(null);
     mini.confirmando = null;
+    cerrarHojas();
+    pintarMini();
+    $('#mini-entrada').focus();
+  }
+
+  async function abrirChatMini(id) {
+    const chat = mini.chats.find((c) => c.id === id) || await window.MiniDoof.chats.leer(id).catch(() => null);
+    if (!chat) { avisar('Ese chat ya no existe.'); return; }
+    cerrarHojas();
+    usarChatMini(chat);
+    if (S.vista !== 'mini') await irASeccion('mini');
+    else pintarMini();
+  }
+
+  async function borrarChatMini(id) {
+    await window.MiniDoof.chats.borrar(id);
+    mini.chats = mini.chats.filter((c) => c.id !== id);
+    if (mini.chat && mini.chat.id === id) usarChatMini(null);
+    pintarMini();
+    pintarChatsMini();
+    actualizarBarra();
+  }
+
+  function filaChatMini(c) {
+    const caja = elemento('div', 'fila-con-borrar');
+    const boton = elemento('button', 'fila' + (mini.chat && mini.chat.id === c.id ? ' actual' : ''));
+    boton.type = 'button';
+    const icono = elemento('span', 'fila-icono');
+    icono.innerHTML = ICONOS.chat;
+    const texto = elemento('span', 'fila-texto');
+    const cantidad = c.mensajes.length;
+    texto.append(elemento('b', '', c.titulo || '(sin título)'), elemento('small', '', `${fechaCorta(c.actualizado)} · ${cantidad} ${cantidad === 1 ? 'mensaje' : 'mensajes'}`));
+    boton.append(icono, texto);
+    boton.addEventListener('click', () => abrirChatMini(c.id));
+    const borrar = elemento('button', 'fila-borrar', '✕');
+    borrar.type = 'button';
+    borrar.setAttribute('aria-label', 'Borrar este chat');
+    borrar.addEventListener('click', async () => {
+      if (!borrar.classList.contains('confirmar')) {     // dos toques, como en los chats de Doof: no tiene vuelta atrás
+        borrar.classList.add('confirmar');
+        borrar.textContent = 'Borrar';
+        setTimeout(() => { borrar.classList.remove('confirmar'); borrar.textContent = '✕'; }, 3500);
+        return;
+      }
+      try { await borrarChatMini(c.id); } catch (e) { avisar('No pude borrarlo: ' + e.message); }
+    });
+    caja.append(boton, borrar);
+    return caja;
+  }
+
+  function pintarChatsMini() {
+    const caja = $('#lista-chats-mini');
+    caja.textContent = '';
+    const lista = mini.chats.filter((c) => c.mensajes.length);
+    if (!lista.length) {
+      caja.append(elemento('div', 'vacio', 'Todavía no hay chats con Charlene.'));
+      return;
+    }
+    const grupos = new Map();
+    for (const c of lista) {
+      const g = grupoFecha(c.actualizado);
+      if (!grupos.has(g)) grupos.set(g, []);
+      grupos.get(g).push(c);
+    }
+    for (const [nombre, items] of grupos) {
+      caja.append(elemento('div', 'grupo', nombre));
+      items.forEach((c) => caja.append(filaChatMini(c)));
+    }
+  }
+
+  async function preguntarAMini(accion, titulo, texto) {
+    if (!mini.chat) usarChatMini({ id: idAlAzar(), titulo: titulo.slice(0, 60), creado: new Date().toISOString(), mensajes: [] });
+    const chat = mini.chat;
+    const respuesta = { rol: 'bot', texto: '', esperando: true, enviado: Date.now() };
+    chat.mensajes.push({ rol: 'usuario', texto: titulo }, respuesta);
+    if (chat.mensajes.length > MAX_MENSAJES_MINI) chat.mensajes.splice(0, chat.mensajes.length - MAX_MENSAJES_MINI);
+    mini.confirmando = null;
+    guardarChatMini(chat);
+    actualizarBarra();
     pintarMini();
     try {
+      // Cada chat con su id: la Pi recuerda la charla por id, así que uno nuevo empieza de cero también allá.
       const final = await window.MiniDoof.pedir(accion, {
         texto,
-        alParcial: (m) => { respuesta.texto = m.texto || ''; pintarMensajesMini(); },
+        chat: chat.id,
+        alEnviar: (n) => { respuesta.n = n; mini.enVuelo.add(n); guardarChatMini(chat); },
+        alParcial: (m) => { respuesta.texto = m.texto || ''; if (mini.chat === chat) pintarMensajesMini(); },
       });
-      // La Pi le agrega a cada respuesta "💭 Charla libre: puedo inventar cosas...". Javier no la quiere en cada mensaje (6 nov 2026): el saludo ya lo dice una vez.
-      respuesta.texto = (final.texto || '').replace(/^\s*💭.*$/gmu, '').trim();
-      if (final.imagen) respuesta.imagen = final.imagen;   // un dibujo de la Xbox (data URL ya armada en mini_doof.js)
-      if (final.imagenIncompleta) respuesta.texto += '\n(El dibujo no llegó completo. Pídemelo otra vez.)';
+      completarRespuestaMini(respuesta, final);
       ponerConexionMini('lista');
     } catch (e) {
-      respuesta.texto = MINI_NO_RESPONDE;
-      respuesta.fallo = true;
+      Object.assign(respuesta, { texto: MINI_NO_RESPONDE, fallo: true, esperando: false });
       ponerConexionMini('caida');
     }
-    respuesta.esperando = false;
-    mini.ocupado = false;
-    pintarMini();
+    mini.enVuelo.delete(respuesta.n);
+    guardarChatMini(chat);
+    if (mini.chat === chat) pintarMini();
   }
 
   function nodoMensajeMini(m) {
@@ -1995,7 +2172,7 @@
     else caja.append(nodoMensajeMini({ rol: 'bot', texto: pcCaida()
       ? 'Soy Charlene y vivo en la Raspberry, pero este teléfono todavía no tiene mi llave. Se instala con la PC encendida.'
       : 'Soy Charlene y vivo en la Raspberry: contesto aunque la PC esté apagada. Para eso, este teléfono necesita mi llave. Se instala una vez, con tu huella.' }));
-    mini.mensajes.forEach((m) => caja.append(nodoMensajeMini(m)));
+    (mini.chat ? mini.chat.mensajes : []).forEach((m) => caja.append(nodoMensajeMini(m)));
     caja.scrollTop = caja.scrollHeight;
   }
 
@@ -2012,7 +2189,7 @@
     const destacado = boton.id === 'encender' && pcCaida();
     const b = elemento('button', 'mini-accion' + (destacado ? ' destacada' : ''), boton.titulo);
     b.type = 'button';
-    b.disabled = mini.ocupado;
+    b.disabled = miniOcupado();
     b.addEventListener('click', () => {
       if (!MINI_CON_CONFIRMACION.has(boton.id)) { preguntarAMini(boton.id, boton.titulo); return; }
       mini.confirmando = boton;
@@ -2026,7 +2203,7 @@
     const formulario = $('#mini-form');
     caja.textContent = '';
     formulario.hidden = !window.MiniDoof.instalada();
-    $('#mini-enviar').disabled = mini.ocupado || !$('#mini-entrada').value.trim();
+    $('#mini-enviar').disabled = miniOcupado() || !$('#mini-entrada').value.trim();
     if (!window.MiniDoof.instalada()) {
       if (!pcCaida()) caja.append(botonCasa('Instalar la llave', '', pedirLlaveMini));
       return;
@@ -2076,7 +2253,7 @@
     e.preventDefault();
     const campo = $('#mini-entrada');
     const texto = campo.value.trim();
-    if (!texto || mini.ocupado) return;
+    if (!texto || miniOcupado()) return;
     campo.value = '';
     preguntarAMini('charla', texto, texto);
   }
@@ -2344,20 +2521,32 @@
   function iniciarMini() {
     $('#mini-form').addEventListener('submit', enviarAMini);
     $('#mini-entrada').addEventListener('input', () => {
-      $('#mini-enviar').disabled = mini.ocupado || !$('#mini-entrada').value.trim();
+      $('#mini-enviar').disabled = miniOcupado() || !$('#mini-entrada').value.trim();
     });
     $('#mini-entrada').maxLength = MAX_TEXTO_MINI;
     $('#banda-mini').addEventListener('click', () => irASeccion('mini'));
+    $('#btn-chats-mini').addEventListener('click', () => abrirHoja('hoja-historial-mini'));
+    $('#btn-nuevo-mini').addEventListener('click', nuevoChatMini);
+    window.MiniDoof.alResponderTarde(alResponderTardeMini);
+    cargarChatsMini();
   }
 
-  // Sin esto, los WebSocket quedarían gastando batería con la app en segundo plano. La llave sigue guardada: al volver se reconecta sola.
+  // Al salir de la app se desconecta limpio y lo pedido sigue pendiente: Android congela la página a los segundos, y antes la respuesta que llegaba
+  // en ese rato se perdía (14 nov 2026). EMQX guarda lo que la Pi mande y lo entrega al volver. De paso, ningún WebSocket gasta batería en segundo plano.
   function alCambiarVisibilidadMini() {
-    clearTimeout(mini.relojOcultar);
     if (document.hidden) {
-      mini.relojOcultar = setTimeout(() => { window.MiniDoof.cerrar(); mini.conexion = ''; }, CERRAR_MINI_AL_OCULTAR_MS);
-    } else if (S.vista === 'mini' && !window.MiniDoof.abierta()) {
+      window.MiniDoof.dormir();
+      if (mini.conexion === 'lista') mini.conexion = '';
+      return;
+    }
+    if (window.MiniDoof.abierta()) {
+      window.MiniDoof.despertar().then(escucharSiHayEsperasMini);
+      if (S.vista === 'mini' && mini.conexion === '') ponerConexionMini(miniOcupado() ? 'buscando' : 'lista');
+    } else if (S.vista === 'mini') {
       mini.menuAlDia = false;
       abrirMini();
+    } else {
+      escucharSiHayEsperasMini();
     }
   }
 
@@ -3216,6 +3405,7 @@
     hoja.setAttribute('aria-hidden', 'false');
     document.body.classList.add('con-hoja');
     if (id === 'hoja-menu') cargarNoticias();        // la insignia de Novedades puede estar vieja
+    if (id === 'hoja-historial-mini') pintarChatsMini();
     if (id === 'hoja-historial') {
       pintarHistorial();
       cargarConversaciones();         // la lista pudo quedar vieja: el refresco tras cada mensaje espera 1,6 s y se abre más rápido que eso
@@ -3304,7 +3494,8 @@
   // El botón de la barra del chat: dos toques (el primero lo pone en rojo y avisa), porque borrar no tiene vuelta atrás.
   async function borrarChatActual() {
     const boton = $('#btn-borrar-chat');
-    if (!S.sesion) return;
+    const deCharlene = S.vista === 'mini';
+    if (deCharlene ? !mini.chat : !S.sesion) return;
     if (!boton.classList.contains('confirmar')) {
       boton.classList.add('confirmar');
       avisar('Toca otra vez el bote para borrar este chat');
@@ -3313,7 +3504,8 @@
     }
     boton.classList.remove('confirmar');
     try {
-      await borrarConversacion(S.sesion);
+      if (deCharlene) await borrarChatMini(mini.chat.id);
+      else await borrarConversacion(S.sesion);
       avisar('Chat borrado');
     } catch (e) {
       avisar('No pude borrarlo: ' + e.message);
@@ -3483,7 +3675,7 @@
     $('#btn-atras').addEventListener('click', atras);
     $('#btn-historial').addEventListener('click', () => abrirHoja('hoja-menu'));
     $$('#hoja-menu .fila').forEach((f) => f.addEventListener('click', () => alElegirDelMenu(f.dataset.destino)));
-    $('#btn-nueva-barra').addEventListener('click', () => nuevaConversacion());
+    $('#btn-nueva-barra').addEventListener('click', () => (S.vista === 'mini' ? nuevoChatMini() : nuevaConversacion()));
     $('#btn-borrar-chat').addEventListener('click', borrarChatActual);
     $('#ver-todo').addEventListener('click', () => abrirHoja('hoja-historial'));
     $('#continuar').addEventListener('click', () => irAChat());
@@ -3567,7 +3759,7 @@
     iniciarAgenteP();
     document.addEventListener('visibilitychange', () => {
       alCambiarVisibilidadMini();
-      if (document.hidden) return;
+      if (document.hidden) { avisarQueSeOculta(); return; }
       revisarAlVolver();
       refrescarSeccion();
       cargarEstadoInicio();

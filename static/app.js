@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.14-48bd5bb5fd';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.15-b708f7b02a';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -228,6 +228,32 @@
       else localStorage.removeItem(clave);
     } catch (e) { /* sigue en memoria mientras la app esté abierta */ }
   }
+
+  // ---------------------------------------------------------------- colores
+  // Grafito por defecto; «Azul noche» son los colores de antes (Ajustes). Se aplica lo antes posible para no pintar uno y saltar al otro.
+  const COLOR_BARRA = { grafito: '#0e0f12', azul: '#0a0f1e' };
+
+  function aplicarTema(tema) {
+    const azul = tema === 'azul';
+    if (azul) document.documentElement.dataset.tema = 'azul';
+    else delete document.documentElement.dataset.tema;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', azul ? COLOR_BARRA.azul : COLOR_BARRA.grafito);
+    const interruptor = document.getElementById('menu-tema');
+    if (interruptor) {
+      interruptor.classList.toggle('activo', azul);
+      interruptor.setAttribute('aria-checked', String(azul));
+    }
+  }
+
+  function cambiarTema() {
+    const nuevo = document.documentElement.dataset.tema === 'azul' ? '' : 'azul';
+    document.documentElement.classList.add('cambiando-tema');
+    aplicarTema(nuevo);
+    guardar('doof_tema', nuevo);
+    setTimeout(() => document.documentElement.classList.remove('cambiando-tema'), 400);
+  }
+
+  aplicarTema(leerGuardado('doof_tema'));
 
   function ponerBase(url) {
     S.base = url;
@@ -902,8 +928,9 @@
     $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
     $('#vista-mini').classList.toggle('activa', S.vista === 'mini');
     $('#vista-agente-p')?.classList.toggle('activa', S.vista === 'agente-p');
-    $('#btn-atras').hidden = S.vista === 'inicio';
-    $('#btn-nueva-barra').hidden = S.vista !== 'chat' && S.vista !== 'mini';
+    // En el teléfono manda el ☰ de la izquierda (el gesto atrás de Android sigue volviendo a Inicio); la flecha queda para la pantalla ancha.
+    $('#btn-atras').hidden = S.vista === 'inicio' || esTelefono();
+    $('#btn-nueva-barra').hidden = !['inicio', 'chat', 'mini'].includes(S.vista);
     // Solo con un chat de la app abierto (los viejos de Telegram/HUD son de lectura), o uno de Charlene.
     $('#btn-borrar-chat').hidden = !((S.vista === 'chat' && S.sesion && !S.soloLectura) || (S.vista === 'mini' && mini.chat));
     $('#btn-chats-mini').hidden = !(S.vista === 'mini' && window.MiniDoof.instalada());
@@ -924,11 +951,13 @@
   const ANCHO_MEDIO = window.matchMedia('(min-width: 700px)');
   const ANCHO_ESCRITORIO = window.matchMedia('(min-width: 1100px)');
   const esEscritorio = () => ANCHO_ESCRITORIO.matches;
+  const esTelefono = () => !ANCHO_MEDIO.matches;
   const panelCasaVisible = () => esEscritorio() && (S.vista === 'chat' || S.vista === 'mini');
   let panelCasaEstaba = false;
 
   function acomodarEscritorio() {
     if (!$('#lateral')) return;        // HTML viejo del caché junto a este app.js: sigue como teléfono
+    $('#lateral').inert = esTelefono() && !lateralAbierta();     // cerrado y fuera de la pantalla: ni el foco ni el lector entran
     document.body.classList.toggle('ancho-medio', ANCHO_MEDIO.matches);
     document.body.classList.toggle('escritorio', esEscritorio());
     const conPanel = panelCasaVisible();
@@ -944,8 +973,8 @@
       if (actual) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     }
-    // Con la lateral a la vista, "Doof" arriba del chat no dice nada: el título del chat sí. En el teléfono la barra sigue igual.
-    if (esEscritorio() && S.vista === 'chat' && !S.soloLectura) {
+    // Con la lateral a la vista, o en el teléfono, "Doof" arriba del chat no dice nada: el título del chat sí.
+    if ((esEscritorio() || esTelefono()) && S.vista === 'chat' && !S.soloLectura) {
       const conv = S.sesion && (S.conversaciones || []).find(c => c.id === S.sesion);
       $('#barra-titulo').textContent = conv ? tituloConversacion(conv) : 'Conversación nueva';
     }
@@ -956,7 +985,7 @@
 
   function pintarLateral() {
     const caja = $('#lateral-lista');
-    if (!caja || !esEscritorio()) return;
+    if (!caja || !(esEscritorio() || lateralAbierta())) return;
     const filtro = normalizar(S.filtroLateral || '');
     const lista = (S.conversaciones || [])
       .filter(c => c.cantidad > 0)
@@ -1050,7 +1079,7 @@
       }
     });
     const alCambiarAncho = () => {
-      if (!ANCHO_MEDIO.matches) cerrarHojasUI();     // un diálogo centrado no tiene sentido al volver a teléfono
+      if (!ANCHO_MEDIO.matches || lateralAbierta()) cerrarHojasUI();     // un diálogo centrado no tiene sentido al volver a teléfono, ni el panel del teléfono en la PC
       acomodarEscritorio();
     };
     ANCHO_MEDIO.addEventListener('change', alCambiarAncho);
@@ -2871,7 +2900,17 @@
       caja.appendChild(vacio);
       return;
     }
-    for (const c of recientes) caja.appendChild(filaConversacion(c, false));
+    for (const c of recientes) {
+      const fila = filaConversacion(c, false);
+      if (c.id === S.sesion && !S.soloLectura) {
+        fila.classList.add('actual');         // la que sigue abierta: en el teléfono reemplaza al botón «Sigue donde ibas»
+        const seguir = document.createElement('em');
+        seguir.className = 'fila-seguir';
+        seguir.textContent = 'Seguir';
+        fila.insertBefore(seguir, fila.lastChild);
+      }
+      caja.appendChild(fila);
+    }
   }
 
   // El HUD le pone a cada chat un título corto con la IA después de la primera respuesta. Mientras no lo tiene (o si falló), se muestra
@@ -3145,20 +3184,42 @@
     seg.textContent = texto ? ' · ' + texto : '';
   }
 
+  // Un chat nuevo no es una pantalla en blanco: el ojo, una pregunta y las mismas sugerencias del Inicio (se copian de #chips, una sola lista).
+  function chatVacio() {
+    const caja = document.createElement('div');
+    caja.className = 'chat-vacio';
+    caja.appendChild(ojo('grande'));
+    const titulo = document.createElement('h2');
+    titulo.textContent = '¿En qué te ayudo?';
+    const nota = document.createElement('p');
+    nota.textContent = 'Pregunta lo que sea o mándame un archivo.';
+    const sugerencias = document.createElement('div');
+    sugerencias.className = 'sugerencias';
+    for (const b of $$('#chips button[data-texto]')) {
+      const copia = document.createElement('button');
+      copia.type = 'button';
+      copia.dataset.texto = b.dataset.texto;
+      copia.textContent = b.textContent;
+      sugerencias.appendChild(copia);
+    }
+    caja.append(titulo, nota, sugerencias);
+    return caja;
+  }
+
   function pintarMensajes() {
     const caja = $('#mensajes');
     const abajo = caja.scrollHeight - caja.scrollTop - caja.clientHeight < 90;
     caja.textContent = '';
 
-    if (!S.mensajes.length && !S.esperando) {
+    if (!S.mensajes.length && !S.esperando && !S.soloLectura) {
+      caja.appendChild(chatVacio());
+    } else if (!S.mensajes.length && !S.esperando) {
       const d = document.createElement('div');
       d.className = 'msg bot';
       d.appendChild(ojo('chico'));
       const c = document.createElement('div');
       c.className = 'msg-cuerpo';
-      c.textContent = S.soloLectura
-        ? 'Esta conversación quedó guardada. Puedes leerla, pero para seguir hablando abre una nueva.'
-        : 'Aquí estoy. Pregunta lo que sea o mándame un archivo.';
+      c.textContent = 'Esta conversación quedó guardada. Puedes leerla, pero para seguir hablando abre una nueva.';
       d.appendChild(c);
       caja.appendChild(d);
     }
@@ -3598,14 +3659,63 @@
     }
   }
 
-  const hojaAbierta = () => !!$('.hoja.abierta');
+  const lateralAbierta = () => document.body.classList.contains('lateral-abierta');
+  const hojaAbierta = () => !!$('.hoja.abierta') || lateralAbierta();
+
+  // El panel lateral del teléfono cuenta como una hoja más: misma entrada del historial (el gesto atrás lo cierra) y una reemplaza a la otra.
+  function abrirLateral() {
+    const lateral = $('#lateral');
+    if (!lateral || !esTelefono()) { abrirHoja('hoja-menu'); return; }
+    if (lateralAbierta()) return;
+    if (hojaAbierta()) cerrarHojasUI();
+    else empujarCapa('hoja');
+    document.body.classList.add('lateral-abierta', 'con-hoja');
+    lateral.inert = false;
+    pintarLateral();
+    cargarConversaciones();
+    cargarNoticias();          // la insignia de Novedades puede estar vieja
+    setTimeout(() => $('#lateral-nueva')?.focus({ preventScroll: true }), 60);
+  }
 
   function cerrarHojasUI() {
     for (const hoja of $$('.hoja')) {
       hoja.classList.remove('abierta');
       hoja.setAttribute('aria-hidden', 'true');
     }
+    if (lateralAbierta()) {
+      document.body.classList.remove('lateral-abierta');
+      const lateral = $('#lateral');
+      if (lateral && esTelefono()) lateral.inert = true;
+      if (lateral?.contains(document.activeElement)) document.activeElement.blur();
+    }
     document.body.classList.remove('con-hoja');
+  }
+
+  // En el teléfono el panel se cierra también arrastrándolo hacia la izquierda, como cualquier cajón de Android.
+  function cablearDeslizarLateral() {
+    const lateral = $('#lateral');
+    if (!lateral) return;
+    let x0 = null, y0 = 0, dx = 0;
+    lateral.addEventListener('touchstart', (e) => {
+      if (!lateralAbierta() || e.touches.length !== 1) return;
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0;
+    }, { passive: true });
+    lateral.addEventListener('touchmove', (e) => {
+      if (x0 === null) return;
+      dx = e.touches[0].clientX - x0;
+      const dy = Math.abs(e.touches[0].clientY - y0);
+      if (dy > 10 && dy > Math.abs(dx)) { x0 = null; lateral.style.transition = ''; lateral.style.transform = ''; return; }   // está desplazando la lista
+      if (dx < 0) { lateral.style.transition = 'none'; lateral.style.transform = `translateX(${dx}px)`; }
+    }, { passive: true });
+    const soltar = () => {
+      if (x0 === null) return;
+      x0 = null;
+      lateral.style.transition = '';
+      lateral.style.transform = '';
+      if (dx < -70) cerrarHojas();
+    };
+    lateral.addEventListener('touchend', soltar);
+    lateral.addEventListener('touchcancel', soltar);
   }
 
   function cerrarHojas() {
@@ -3750,8 +3860,8 @@
     pintarMensajes();
     pintarInicio();
     actualizarBarra();
-    if (!irInicio) irAChat();
-    avisar('Conversación nueva');
+    if (!irInicio) irAChat();          // el chat vacío ya lo dice: el aviso solo hace falta si se vuelve al Inicio
+    else avisar('Conversación nueva');
   }
 
   // ---------------------------------------------------------------- eventos
@@ -3854,9 +3964,17 @@
   function cablear() {
     $('#btn-enviar').addEventListener('click', () => enviarTexto($('#entrada').value));
     $('#btn-atras').addEventListener('click', atras);
-    $('#btn-historial').addEventListener('click', () => abrirHoja('hoja-menu'));
+    $('#btn-historial').addEventListener('click', () => (esTelefono() ? abrirLateral() : abrirHoja('hoja-menu')));
+    $('#lateral-velo')?.addEventListener('click', cerrarHojas);
+    $('#menu-tema')?.addEventListener('click', cambiarTema);
+    aplicarTema(leerGuardado('doof_tema'));        // el interruptor ya existe: que muestre el tema guardado
+    cablearDeslizarLateral();
     $$('#hoja-menu .fila').forEach((f) => f.addEventListener('click', () => alElegirDelMenu(f.dataset.destino)));
-    $('#btn-nueva-barra').addEventListener('click', () => (S.vista === 'mini' ? nuevoChatMini() : nuevaConversacion()));
+    $('#btn-nueva-barra').addEventListener('click', () => {
+      if (S.vista === 'mini') { nuevoChatMini(); return; }
+      nuevaConversacion(false);                    // un chat vacío, listo para escribir (antes mandaba al Inicio)
+      setTimeout(() => $('#entrada').focus(), 60);
+    });
     $('#btn-borrar-chat').addEventListener('click', borrarChatActual);
     $('#ver-todo').addEventListener('click', () => alElegirDelMenu('conversaciones'));
     $('#continuar').addEventListener('click', () => irAChat());
@@ -3896,6 +4014,10 @@
 
     $('#chips').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-texto]');
+      if (b) enviarTexto(b.dataset.texto);
+    });
+    $('#mensajes').addEventListener('click', (e) => {
+      const b = e.target.closest('.chat-vacio button[data-texto]');
       if (b) enviarTexto(b.dataset.texto);
     });
 

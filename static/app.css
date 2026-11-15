@@ -2,27 +2,32 @@
    La personalidad la ponen el ojo, el azul eléctrico y el aire; no los gradientes de moda. */
 
 :root {
-  /* Azul eléctrico sobre azul noche. Contrastes medidos (WCAG) de cada texto sobre fondo y superficies: texto 13-16, texto-2 9-11,
-     muted 6-8, tenue 5-6, acento 5-6, todos por encima de 4,5. Sobre el acento se escribe con --sobre-acento (5,9), nunca con blanco (3,2). */
-  --fondo: #0a0f1e;
-  --fondo-hondo: #060913;
-  --superficie: #111a31;
-  --superficie-2: #17223f;
-  --hoja: #0e1630;
-  --borde: #26345c;
-  --borde-suave: #1c2848;
-  --borde-fuerte: #2e437a;
-  --texto: #e9eefb;
-  --texto-2: #b6c3e4;
-  --muted: #94a5d0;
-  --tenue: #8294c2;
+  /* Grafito: gris carbón neutro, y el azul eléctrico solo donde se toca. Contrastes (WCAG) sobre --superficie: texto 15, texto-2 9,4,
+     muted 7, tenue 5,6, acento 5,5; todos por encima de 4,5. Sobre el acento se escribe con --sobre-acento, nunca con blanco (3,2).
+     Los valores de --capa-* son el fondo con transparencia (barra, velos), para que cambien junto con el tema. */
+  --fondo: #0e0f12;
+  --fondo-hondo: #09090b;
+  --superficie: #17191e;
+  --superficie-2: #1f2229;
+  --hoja: #141519;
+  --borde: #2a2e37;
+  --borde-suave: #212329;
+  --borde-fuerte: #383d48;
+  --texto: #ecedf0;
+  --texto-2: #b9bdc7;
+  --muted: #9da2ad;
+  --tenue: #8b909b;
+  --capa-barra: rgba(14, 15, 18, .78);
+  --capa-transparente: rgba(14, 15, 18, 0);
+  --capa-velo: rgba(4, 4, 6, .6);
+  --brillo: transparent;
   --acento: #5b8cff;
   --acento-claro: #93b4ff;
   --acento-texto: #c9d8ff;
   --acento-suave: rgba(91, 140, 255, .16);
   --sobre-acento: #06122e;
-  --burbuja: #1b2f66;
-  --burbuja-borde: #2b4690;
+  --burbuja: #1e2b4d;
+  --burbuja-borde: #2d3f6e;
   --verde: #5fd0a0;
   --ambar: #e0b26a;
   --ambar-claro: #ecc98f;
@@ -38,6 +43,28 @@
   --barra: 58px;
   --fuente: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --curva: cubic-bezier(.22, 1, .36, 1);
+}
+
+/* «Azul noche»: los colores de antes, para quien los prefiera (Ajustes > Colores). Contrastes medidos en su día: todos sobre 4,5. */
+:root[data-tema="azul"] {
+  --fondo: #0a0f1e;
+  --fondo-hondo: #060913;
+  --superficie: #111a31;
+  --superficie-2: #17223f;
+  --hoja: #0e1630;
+  --borde: #26345c;
+  --borde-suave: #1c2848;
+  --borde-fuerte: #2e437a;
+  --texto: #e9eefb;
+  --texto-2: #b6c3e4;
+  --muted: #94a5d0;
+  --tenue: #8294c2;
+  --burbuja: #1b2f66;
+  --burbuja-borde: #2b4690;
+  --capa-barra: rgba(10, 15, 30, .72);
+  --capa-transparente: rgba(10, 15, 30, 0);
+  --capa-velo: rgba(3, 6, 14, .58);
+  --brillo: rgba(91, 140, 255, .18);
 }
 
 * { box-sizing: border-box; }
@@ -74,7 +101,7 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
   height: 100dvh;
   margin: 0 auto;
   background:
-    radial-gradient(120% 55% at 50% -12%, rgba(91, 140, 255, .18), transparent 62%),
+    radial-gradient(120% 55% at 50% -12%, var(--brillo), transparent 62%),
     var(--fondo);
   overflow: hidden;
   overflow: clip;       /* hidden todavía se desplaza por código: al enfocar un campo, el menú lateral oculto corría toda la app 14 px */
@@ -90,7 +117,7 @@ code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
   flex: 0 0 auto;
   height: calc(var(--barra) + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) 6px 0;
-  background: rgba(10, 15, 30, .72);
+  background: var(--capa-barra);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   border-bottom: 1px solid transparent;
@@ -493,7 +520,7 @@ body[data-vista="inicio"] .barra-centro { padding-left: 14px; }
 .compositor {
   flex: 0 0 auto;
   padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
-  background: linear-gradient(to top, var(--fondo) 62%, rgba(10, 15, 30, 0));
+  background: linear-gradient(to top, var(--fondo) 62%, var(--capa-transparente));
 }
 .caja-texto {
   display: flex;
@@ -590,7 +617,7 @@ body:not([data-vista="chat"]) .pista { display: none; }
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: rgba(3, 6, 14, .55);
+  background: var(--capa-velo);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   animation: aparecer .2s ease both;
@@ -608,7 +635,7 @@ body.con-hoja .vista { overflow: hidden; }
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(3, 6, 14, .58);
+  background: var(--capa-velo);
   opacity: 0;
   pointer-events: none;
   transition: opacity .2s ease;
@@ -700,7 +727,7 @@ body.con-hoja .vista { overflow: hidden; }
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(100% 55% at 50% 0%, rgba(91, 140, 255, .22), transparent 65%),
+    radial-gradient(100% 55% at 50% 0%, rgba(91, 140, 255, .12), transparent 65%),
     var(--fondo);
 }
 .login[hidden] { display: none; }
@@ -983,6 +1010,8 @@ body[data-vista="mini"] .ojo { color: var(--ambar); }
 #mini-form[hidden] { display: none; }
 #mini-entrada { flex: 1; min-width: 0; padding: 10px 8px 10px 12px; font-size: 16px; color: var(--texto); background: transparent; border: 0; outline: none; }
 #mini-entrada::placeholder { color: var(--tenue); }
+#p-entrada { flex: 1; min-width: 0; padding: 10px 8px 10px 12px; font-size: 16px; color: var(--texto); background: transparent; border: 0; outline: none; }
+#p-entrada::placeholder { color: var(--tenue); }
 #mini-enviar:not(:disabled) { background: var(--ambar); box-shadow: 0 4px 18px rgba(224, 178, 106, .28); }
 
 .mini-pestanas { display: flex; border-bottom: 1px solid var(--borde-suave); }
@@ -1263,7 +1292,7 @@ body[data-vista="agente-p"] #compositor {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(3, 6, 14, .66);
+  background: var(--capa-velo);
   opacity: 0;
   pointer-events: none;
   transition: opacity .16s ease;
@@ -1303,7 +1332,7 @@ body.arrastrando .soltar > div { transform: none; }
     grid-template-rows: auto auto minmax(0, 1fr) auto;
     max-width: none;
     background:
-      radial-gradient(60% 50% at 58% -14%, rgba(91, 140, 255, .14), transparent 66%),
+      radial-gradient(60% 50% at 58% -14%, var(--brillo), transparent 66%),
       var(--fondo);
   }
   #barra { grid-column: 2; grid-row: 1; padding-inline: 14px; }
@@ -1586,4 +1615,372 @@ body.arrastrando .soltar > div { transform: none; }
   .menu-boton:hover { background: var(--superficie); }
   .lateral-item:hover { background: var(--superficie); color: var(--texto); }
   .lateral-nueva:hover { background: rgba(91, 140, 255, .24); border-color: rgba(91, 140, 255, .55); }
+}
+
+/* ================================================================ chat nuevo (todas las pantallas)
+   Un chat vacío no es una pantalla en blanco: el ojo, una pregunta y las sugerencias del Inicio. */
+.chat-vacio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: auto 0;
+  padding: 24px 8px 12px;
+  text-align: center;
+  animation: aparecer .32s var(--curva) both;
+}
+.chat-vacio .ojo.grande { width: 64px; height: 64px; }
+.chat-vacio h2 { margin: 18px 0 6px; font-size: 22px; font-weight: 650; letter-spacing: -.025em; line-height: 1.2; text-wrap: balance; }
+.chat-vacio p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--tenue); }
+.sugerencias { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 440px; margin-top: 22px; }
+.sugerencias button {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  color: var(--texto-2);
+  font-size: 14px;
+  transition: border-color .15s, color .15s, background .15s, transform .12s;
+}
+.sugerencias button:active { transform: scale(.96); border-color: rgba(91, 140, 255, .5); color: var(--texto); }
+@media (hover: hover) and (pointer: fine) { .sugerencias button:hover { border-color: rgba(91, 140, 255, .45); color: var(--texto); } }
+
+/* Ajustes > Colores: el mismo interruptor de USDT. */
+.menu-tema { margin: 0 0 12px; }
+.fila-seguir, .lateral-exp, .lateral-velo, .mosaico-icono { display: none; }
+
+/* Al cambiar de tema, los colores se funden en vez de saltar. */
+@media (prefers-reduced-motion: no-preference) {
+  html.cambiando-tema *, html.cambiando-tema *::before, html.cambiando-tema *::after {
+    transition: background-color .35s ease, border-color .35s ease, color .35s ease, fill .35s ease !important;
+  }
+}
+
+/* ================================================================ teléfono (< 700 px)
+   ☰ a la izquierda abre la misma lateral de la PC como panel; ✎ a la derecha abre un chat nuevo. El Inicio deja de ser
+   un tablero de cajas: estado de la casa en un solo bloque, las conversaciones, y las sugerencias junto al pulgar. */
+@media (max-width: 699.98px) {
+  #app { background: radial-gradient(120% 40% at 50% -14%, var(--brillo), transparent 60%), var(--fondo); }
+
+  /* ---------- barra */
+  #barra { gap: 0; padding-inline: 4px; }
+  .barra-centro { gap: 0; padding-left: 4px; }
+  .barra-centro .ojo { display: none; }
+  body[data-vista="mini"] .barra-centro .ojo { display: block; width: 26px; height: 26px; margin-right: 10px; }
+  .barra-texto strong { font-size: 15.5px; font-weight: 600; }
+  #btn-nueva-barra { color: var(--texto); }
+  body[data-vista="inicio"] #barra { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  body[data-vista="inicio"] .barra-texto { display: none; }
+
+  /* ---------- panel lateral */
+  .lateral-velo {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 34;
+    background: var(--capa-velo);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .26s ease;
+  }
+  body.lateral-abierta .lateral-velo { opacity: 1; pointer-events: auto; }
+  .barra-lateral {
+    position: fixed;
+    z-index: 35;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    width: min(86vw, 340px);
+    padding: calc(10px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+    background: var(--hoja);
+    border-right: 1px solid var(--borde-suave);
+    border-radius: 0 var(--r-xl) var(--r-xl) 0;
+    box-shadow: 18px 0 56px rgba(0, 0, 0, .5);
+    transform: translateX(calc(-100% - 60px));
+    transition: transform .34s var(--curva);
+    overflow: hidden;
+  }
+  body.lateral-abierta .barra-lateral { transform: none; }
+  .barra-lateral > * { flex-shrink: 0; }
+  .barra-lateral svg:not(.ojo) { width: 20px; height: 20px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .barra-lateral kbd { display: none; }
+
+  .lateral-marca { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px; margin-bottom: 8px; }
+  .lateral-marca .ojo.chico { width: 28px; height: 28px; }
+  .lateral-marca strong { font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
+
+  .lateral-nueva {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 0 16px;
+    border-radius: var(--r-m);
+    background: var(--acento);
+    color: var(--sobre-acento);
+    font-size: 15px;
+    font-weight: 650;
+    box-shadow: 0 6px 20px rgba(91, 140, 255, .22);
+    transition: transform .12s, box-shadow .15s;
+  }
+  .lateral-nueva:hover { background: var(--acento); border-color: transparent; }
+  .lateral-nueva svg { stroke-width: 2 !important; }
+  .lateral-nueva:active { transform: scale(.98); }
+
+  /* Las secciones: lista en dos columnas, ícono en baldosa y nombre. Charlene y el Agente P conservan su color de siempre. */
+  .lateral-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 6px; margin-top: 14px; }
+  .lateral-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 46px;
+    padding: 0 8px 0 6px;
+    border-radius: var(--r-m);
+    color: var(--texto-2);
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    transition: background .15s, color .15s;
+  }
+  .lateral-item > span { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lateral-item svg:not(.ojo) {
+    width: 32px;
+    height: 32px;
+    padding: 7px;
+    border-radius: 10px;
+    background: var(--superficie);
+    color: var(--muted);
+    transition: background .15s, color .15s;
+  }
+  .lateral-item:active { background: var(--superficie); }
+  .lateral-item[data-destino="mini"] svg { color: var(--ambar); }
+  .lateral-agente-p svg { color: var(--acento-p) !important; }
+  .lateral-item.actual { background: var(--superficie); color: var(--texto); font-weight: 600; }
+  .lateral-item.actual svg { background: var(--acento-suave); color: var(--acento-claro); }
+  .lateral-item.actual[data-destino="mini"] svg { background: rgba(224, 178, 106, .16); color: var(--ambar); }
+  .lateral-agente-p.actual svg { background: rgba(63, 208, 192, .16); }
+  .lateral-item.solo-riel { display: none; }
+  /* La cuenta de Novedades va en la esquina del ícono, como en el lanzador del teléfono: así el nombre no se corta. */
+  .lateral-insignia {
+    position: absolute;
+    left: 27px;
+    top: 3px;
+    min-width: 19px;
+    padding: 2px 5px;
+    border: 2px solid var(--hoja);
+    border-radius: 999px;
+    font: 650 10.5px/1.1 var(--fuente);
+    font-style: normal;
+    text-align: center;
+    color: var(--sobre-acento);
+    background: var(--acento);
+  }
+  /* Presencia, la experimental, ocupa la última fila entera: cierra la grilla impar y tiene sitio para su etiqueta. */
+  .lateral-item[data-destino="presencia"] { grid-column: 1 / -1; }
+  .lateral-exp { display: block; flex: none; margin-left: 2px; padding: 2px 6px; border-radius: 999px; background: rgba(224, 178, 106, .14); color: var(--ambar-claro); font: 600 10px/1.2 var(--fuente); font-style: normal; }
+
+  .lateral-chats { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--borde-suave); }
+  .lateral-buscar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 42px;
+    margin: 0 0 2px;
+    padding: 0 12px;
+    border-radius: var(--r-m);
+    background: var(--superficie);
+    border: 1px solid var(--borde-suave);
+    color: var(--tenue);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .lateral-buscar svg:not(.ojo) { width: 17px; height: 17px; }
+  .lateral-buscar:focus-within { border-color: rgba(91, 140, 255, .7); box-shadow: 0 0 0 3px var(--acento-suave); }
+  #lateral-buscar { flex: 1; min-width: 0; height: 100%; padding: 0; background: none; border: 0; outline: none; font-size: 16px; color: var(--texto); caret-color: var(--acento-claro); }
+  #lateral-buscar::placeholder { color: var(--tenue); }
+  #lateral-buscar::-webkit-search-cancel-button { display: none; }
+  .lateral-lista { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -6px; padding: 0 6px 6px; scrollbar-width: none; }
+  .lateral-lista .grupo { padding: 14px 10px 4px; font-size: 12px; letter-spacing: 0; text-transform: none; font-weight: 600; color: var(--tenue); }
+  .lateral-lista .fila { gap: 10px; min-height: 44px; padding: 0 10px; border-radius: var(--r-s); }
+  .lateral-lista .fila-icono, .lateral-lista .flecha, .lateral-lista .fila-texto small { display: none; }
+  .lateral-lista .fila:not([data-origen="app"]) .fila-icono { display: grid; width: 18px; height: 18px; border: 0; background: none; color: var(--tenue); }
+  .lateral-lista .fila:not([data-origen="app"]) .fila-icono svg { width: 15px; height: 15px; }
+  .lateral-lista .fila-texto b { font-size: 15px; font-weight: 450; color: var(--texto-2); }
+  .lateral-lista .fila.actual { background: var(--superficie-2); }
+  .lateral-lista .fila.actual b { color: var(--texto); font-weight: 550; }
+  .lateral-vacio { margin: 12px 10px 0; font-size: 13px; line-height: 1.5; color: var(--tenue); }
+
+  .lateral-pie { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--borde-suave); }
+  .lateral-conexion { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 8px; font-size: 13px; color: var(--tenue); }
+  .lateral-conexion i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+  .lateral-conexion.conectado i { background: var(--verde); }
+  .lateral-conexion.conectando i { background: var(--ambar); animation: pulso 1.6s infinite; }
+  .lateral-conexion.sin-conexion i { background: var(--rojo); }
+  .lateral-conexion.sin-conexion { color: var(--rojo-claro); }
+  .lateral-conexion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lateral-pie .lateral-ajustes { flex-direction: row; gap: 8px; width: auto; min-height: 44px; padding: 0 12px; font-size: 14px; background: none; border-color: transparent; }
+
+  /* Ajustes: hoja que sube desde abajo, sin la lista de secciones (ya está en el panel). */
+  .hoja.lateral { align-items: flex-end; justify-content: center; }
+  .hoja-caja.menu {
+    width: 100%;
+    height: auto;
+    max-height: 86dvh;
+    padding: 0 0 calc(14px + env(safe-area-inset-bottom));
+    border-left: 0;
+    border-top: 1px solid var(--borde);
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    box-shadow: 0 -20px 60px rgba(0, 0, 0, .5);
+    transform: translateY(100%);
+  }
+  .hoja-caja.menu .hoja-cab { padding-top: 14px; }
+  .hoja-caja.menu .menu-lista { display: none; }
+  .hoja-caja.menu .menu-pie { padding-top: 4px; border-top: 0; }
+
+  /* ---------- inicio */
+  #vista-inicio { display: flex; flex-direction: column; padding-bottom: 0; }
+  .inicio-cab { order: 1; gap: 12px; padding: 4px 20px 0; }
+  .inicio-cab .ojo.grande { width: 40px; height: 40px; }
+  .inicio-saludo h1 { font-size: 22px; letter-spacing: -.025em; }
+  .fecha { margin-top: 2px; }
+
+  /* El estado de la casa: un bloque, tres filas. El ícono lleva el color del estado (verde, ámbar, rojo); arriba el valor, abajo de qué es. */
+  .estado-casa {
+    order: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 18px 16px 0;
+    padding: 4px 0;
+    background: var(--superficie);
+    border: 1px solid var(--borde-suave);
+    border-radius: var(--r-l);
+    overflow: hidden;
+  }
+  .mosaico, .fila-agentes {
+    position: relative;
+    display: grid;
+    grid-template-columns: 52px auto minmax(0, 1fr) 18px;
+    grid-template-rows: auto auto;
+    align-items: center;
+    align-content: center;
+    gap: 2px 0;
+    min-height: 66px;
+    padding: 10px 12px 10px 14px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    text-align: left;
+  }
+  .mosaico + .mosaico::before, .mosaico + .fila-agentes::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 66px;
+    right: 0;
+    height: 1px;
+    background: var(--borde-suave);
+  }
+  .mosaico:active, .fila-agentes:active { transform: none; background: var(--superficie-2); }
+
+  .mosaico-icono {
+    display: grid;
+    place-items: center;
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--superficie-2);
+    color: var(--muted);
+    transition: background .3s, color .3s;
+  }
+  .mosaico-icono svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .mosaico.bien .mosaico-icono, .fila-agentes.bien .mosaico-icono { background: rgba(95, 208, 160, .13); color: var(--verde); }
+  .mosaico.mal .mosaico-icono, .fila-agentes.mal .mosaico-icono { background: rgba(232, 120, 138, .14); color: var(--rojo-claro); }
+  .mosaico.espera .mosaico-icono, .fila-agentes.trabajando .mosaico-icono { background: rgba(224, 178, 106, .14); color: var(--ambar); }
+  .mosaico-punto { display: none; }
+
+  .mosaico-cab { display: contents; }
+  .fila-agentes-texto { display: contents; }
+  .mosaico-valor, .fila-agentes-texto small {
+    grid-column: 2 / 4;
+    grid-row: 1;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -.012em;
+    line-height: 1.25;
+    color: var(--texto);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mosaico.viejo .mosaico-valor { color: var(--texto-2); }
+  .mosaico-cab > span, .fila-agentes-texto strong { grid-column: 2; grid-row: 2; font-size: 12.5px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+  .mosaico-detalle { grid-column: 3; grid-row: 2; min-height: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mosaico-detalle::before { content: "\00a0·\00a0"; }
+  .mosaico-detalle:empty { display: none; }
+  .mosaico-medidor { grid-column: 2 / 4; grid-row: 3; height: 4px; margin-top: 7px; }
+  .mosaico::after {
+    content: "";
+    grid-column: 4;
+    grid-row: 1 / span 3;
+    justify-self: center;
+    width: 7px;
+    height: 7px;
+    border-top: 1.7px solid var(--muted);
+    border-right: 1.7px solid var(--muted);
+    transform: translateX(-2px) rotate(45deg);
+    opacity: .6;
+  }
+  .fila-agentes .flecha { grid-column: 4; grid-row: 1 / span 3; width: 16px; height: 16px; opacity: .8; }
+  .fila-agentes.trabajando { border-color: transparent; }
+
+  #vista-inicio .continuar { display: none; }
+  .seccion { order: 3; margin-top: 26px; }
+  .seccion-cab { padding: 0 20px 2px; }
+  .seccion-cab h2 { font-size: 15px; color: var(--texto); }
+  #recientes .fila { padding: 10px 20px; }
+  #recientes .fila-icono { width: 34px; height: 34px; background: transparent; }
+  #recientes .fila.actual .fila-icono { color: var(--acento-claro); border-color: rgba(91, 140, 255, .4); background: var(--acento-suave); }
+  .fila-seguir { display: inline-block; flex: none; padding: 4px 10px; border-radius: 999px; background: var(--acento-suave); color: var(--acento-texto); font-size: 12px; font-style: normal; font-weight: 600; }
+
+  /* Sugerencias: pastillas que se deslizan, pegadas a la caja de texto. */
+  .chips {
+    order: 4;
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+    padding: 22px 16px 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: linear-gradient(to top, var(--fondo) 58%, var(--capa-transparente));
+  }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips button {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 999px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  /* ---------- chat */
+  .mensajes { gap: 18px; padding: 16px 16px 18px; }
+}
+
+/* Teléfono bajito: la grilla del panel se aprieta para que la lista de chats no quede en dos filas. */
+@media (max-width: 699.98px) and (max-height: 700px) {
+  .lateral-marca { height: 36px; margin-bottom: 4px; }
+  .lateral-nueva { min-height: 44px; }
+  .lateral-nav { margin-top: 8px; }
+  .lateral-item { min-height: 40px; }
+  .lateral-item svg:not(.ojo) { width: 28px; height: 28px; padding: 6px; }
+  .pista { margin-top: 6px; font-size: 10.5px; opacity: .85; }
 }

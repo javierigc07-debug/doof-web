@@ -1778,8 +1778,7 @@ body.arrastrando .soltar > div { transform: none; }
     color: var(--sobre-acento);
     background: var(--acento);
   }
-  /* Presencia, la experimental, ocupa la última fila entera: cierra la grilla impar y tiene sitio para su etiqueta. */
-  .lateral-item[data-destino="presencia"] { grid-column: 1 / -1; }
+  /* Con Radio son 10 secciones: la grilla de 2 columnas queda pareja y Presencia ya no necesita la fila entera (su "exp." entra en media). */
   .lateral-exp { display: block; flex: none; margin-left: 2px; padding: 2px 6px; border-radius: 999px; background: rgba(224, 178, 106, .14); color: var(--ambar-claro); font: 600 10px/1.2 var(--fuente); font-style: normal; }
 
   .lateral-chats { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--borde-suave); }

@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.15-5b645af2c9';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.15-e8b323fd74';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -91,7 +91,7 @@
   const ESPERA_TARDIA_MINI_MS = 7 * 60 * 1000;
   const CLAVE_CHAT_MINI = 'mini_chat_actual';
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', presencia: 'Presencia', novedades: 'Novedades', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', radio: 'Radio', presencia: 'Presencia', novedades: 'Novedades', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -483,7 +483,7 @@
       } else if (novedad && /^[0-9a-f]{12}$/.test(novedad)) {
         history.replaceState(history.state, '', location.pathname);
         abrirNovedad(novedad);
-      } else if (['luz', 'usdt', 'pc', 'agentes', 'novedades'].includes(params.get('seccion'))) {
+      } else if (['luz', 'usdt', 'radio', 'pc', 'agentes', 'novedades'].includes(params.get('seccion'))) {
         // El menú de la bandeja de la PC: "Luz" y "USDT" abren la ventana ya en esa sección.
         const seccion = params.get('seccion');
         history.replaceState(history.state, '', location.pathname);
@@ -923,6 +923,7 @@
     $('#vista-luz').classList.toggle('activa', S.vista === 'luz');
     $('#vista-pc').classList.toggle('activa', S.vista === 'pc');
     $('#vista-usdt').classList.toggle('activa', S.vista === 'usdt');
+    $('#vista-radio')?.classList.toggle('activa', S.vista === 'radio');      // la pinta radio.js, que mira body[data-vista]
     $('#vista-presencia').classList.toggle('activa', S.vista === 'presencia');
     $('#vista-novedades').classList.toggle('activa', S.vista === 'novedades');
     $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
@@ -1226,6 +1227,7 @@
     pintarAprobaciones();
     if (vista === 'luz') pintarLuz();
     else if (vista === 'usdt') pintarUsdt();
+    else if (vista === 'radio') { /* radio.js entra solo al ver body[data-vista="radio"] */ }
     else if (vista === 'presencia') pintarPresencia();
     else if (vista === 'novedades') pintarNovedades();
     else if (vista === 'agentes') pintarAgentes();
@@ -3875,6 +3877,8 @@
           avisar('Doof espera tu huella', 'Ver', () => irAChat());
         }
       });
+    } else if (tipo === 'radio') {
+      window.DoofRadio?.evento(datos);
     } else if (tipo === 'pensamiento') {
       if (datos.tool) S.herramienta = datos.tool;
       actualizarPensando();
@@ -4210,6 +4214,14 @@
     clearTimeout(temporizadorAviso);
     temporizadorAviso = setTimeout(() => { caja.hidden = true; }, 4500);
   }
+
+  // Lo mínimo que necesitan las secciones que viven en su propio archivo (radio.js): la misma conexión, el mismo aviso, el mismo menú.
+  window.DoofApp = {
+    api: (...a) => api(...a),
+    avisar: (...a) => avisar(...a),
+    base: () => S.base,
+    ir: (destino) => alElegirDelMenu(destino),
+  };
 
   // ---------------------------------------------------------------- init
   function iniciar() {

@@ -1,0 +1,214 @@
+/* Sección Radio de DoofApp (radio.js). Solo usa los tokens de app.css, así sigue al tema (Grafito o Azul) sin tocar nada más.
+   Las clases llevan el prefijo radio- para no chocar con las de app.css. Los interruptores reusan los del USDT. */
+
+body[data-vista="radio"] #compositor { display: none; }
+body[data-vista="radio"] #barra { border-bottom-color: var(--borde-suave); }
+
+#vista-radio { --radio-px-mhz: 160px; --radio-verde-suave: rgba(95, 208, 160, .14); --radio-ambar-suave: rgba(224, 178, 106, .14); }
+#vista-radio button { font: inherit; color: inherit; }
+#vista-radio svg.radio-i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+#vista-radio :focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; border-radius: 8px; }
+
+/* línea de estado */
+.radio-estado { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--texto-2); }
+.radio-estado i { width: 9px; height: 9px; border-radius: 50%; background: var(--tenue); flex: none; }
+.radio-estado.vivo i { background: var(--verde); animation: radio-latido 2s var(--curva) infinite; }
+.radio-estado.mal i { background: var(--rojo); }
+@keyframes radio-latido { 0% { box-shadow: 0 0 0 0 rgba(95, 208, 160, .55); } 70%, 100% { box-shadow: 0 0 0 7px rgba(95, 208, 160, 0); } }
+
+/* ---------- el sintonizador ---------- */
+.radio-sintonizador { margin-top: 14px; border: 1px solid var(--borde-suave); border-radius: var(--r-l); background: var(--fondo-hondo); overflow: hidden; transition: border-color .3s; }
+.radio-sintonizador.tuya { border-color: rgba(95, 208, 160, .45); }
+.radio-lectura { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 6px; padding: 14px 8px 2px; }
+.radio-saltar { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: var(--texto-2); }
+.radio-saltar:hover { background: var(--superficie); color: var(--texto); }
+.radio-saltar:active { transform: scale(.94); }
+.radio-frecuencia { text-align: center; min-width: 0; }
+.radio-frecuencia b { font-size: 46px; font-weight: 700; letter-spacing: -.045em; line-height: 1; font-variant-numeric: tabular-nums; }
+.radio-frecuencia b small { margin-left: 4px; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--tenue); }
+.radio-frecuencia span { display: block; margin-top: 4px; font-size: 14px; font-weight: 600; color: var(--texto-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.radio-frecuencia.vacia b, .radio-frecuencia.vacia span { color: var(--tenue); }
+.radio-frecuencia.vacia span { font-weight: 500; }
+
+.radio-marco { position: relative; }
+.radio-dial {
+  overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain;
+  padding-inline: 50%; height: 92px; cursor: grab; touch-action: pan-x;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
+}
+.radio-dial::-webkit-scrollbar { display: none; }
+.radio-dial.arrastrando { cursor: grabbing; scroll-snap-type: none; }
+.radio-escala {
+  position: relative; width: calc(20.5 * var(--radio-px-mhz)); height: 100%;
+  background:
+    repeating-linear-gradient(90deg, var(--borde-fuerte) 0 1px, transparent 1px calc(var(--radio-px-mhz) / 10)) 0 62px / 100% 7px no-repeat,
+    repeating-linear-gradient(90deg, var(--muted) 0 1px, transparent 1px var(--radio-px-mhz)) calc(var(--radio-px-mhz) / 2) 56px / calc(100% - var(--radio-px-mhz) / 2) 13px no-repeat;
+}
+.radio-mhz { position: absolute; top: 72px; transform: translateX(-50%); font-size: 10.5px; color: var(--tenue); font-variant-numeric: tabular-nums; pointer-events: none; }
+.radio-estacion {
+  position: absolute; top: 8px; transform: translateX(-50%); scroll-snap-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 8px;
+}
+.radio-estacion span { font-size: 11.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; transition: color .2s; }
+.radio-estacion i { width: 9px; height: 9px; border-radius: 50%; background: var(--tenue); transition: transform .25s var(--curva); }
+.radio-estacion.musica i { background: var(--verde); }
+.radio-estacion.tuya i { background: var(--verde); box-shadow: 0 0 0 4px var(--radio-verde-suave); }
+.radio-estacion.mal i { background: var(--rojo); }
+.radio-estacion.otra i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--tenue); }
+.radio-estacion.otra span { color: var(--tenue); font-weight: 500; }
+.radio-estacion.en-aguja span { color: var(--texto); }
+.radio-estacion.en-aguja i { transform: scale(1.3); }
+.radio-estacion.nuevo i { animation: radio-latido 1.2s var(--curva) 2; }
+.radio-aguja { position: absolute; left: 50%; top: 2px; height: 70px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--acento); box-shadow: 0 0 12px rgba(91, 140, 255, .55); pointer-events: none; }
+.radio-aguja::before { content: ""; position: absolute; top: -2px; left: 50%; width: 10px; height: 10px; margin-left: -5px; border-radius: 3px; background: var(--acento); transform: rotate(45deg); }
+
+.radio-sintonizada { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; padding: 14px 16px 16px; border-top: 1px solid var(--borde-suave); min-height: 92px; }
+.radio-sintonizada.nuevo { animation: radio-destello 2.4s var(--curva); }
+.radio-sintonizada-texto { min-width: 0; }
+.radio-tuya { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12.5px; font-weight: 650; color: var(--verde); }
+.radio-tuya svg { width: 14px; height: 14px; }
+.radio-sintonizada-texto b { display: block; font-size: 17px; font-weight: 650; line-height: 1.25; overflow-wrap: anywhere; }
+.radio-sintonizada-texto > span { display: block; margin-top: 2px; font-size: 14px; color: var(--texto-2); }
+.radio-sintonizada-texto small { display: block; margin-top: 5px; font-size: 12.5px; color: var(--tenue); }
+.radio-sintonizada-texto.sin b { color: var(--texto-2); font-weight: 550; font-size: 15.5px; }
+.radio-sintonizada-texto.mal b { color: var(--rojo-claro); }
+.radio-sintonizada-botones { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.radio-fila-mini { display: flex; align-items: center; gap: 2px; }
+.radio-escuchando { display: flex; align-items: center; gap: 10px; }
+.radio-comprobando { font-style: normal; color: var(--ambar); }
+
+.radio-tambien { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--tenue); }
+.radio-tambien:empty { display: none; }
+.radio-tambien button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid rgba(95, 208, 160, .35); border-radius: 999px; color: var(--texto-2); font-size: 13px; }
+.radio-tambien button i { width: 7px; height: 7px; border-radius: 50%; background: var(--verde); }
+.radio-tambien button b { font-variant-numeric: tabular-nums; color: var(--texto); }
+.radio-tambien button:hover { background: var(--radio-verde-suave); }
+
+/* ---------- botones ---------- */
+.radio-boton { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 999px; font-size: 14px; font-weight: 650; white-space: nowrap; transition: background .2s, transform .15s var(--curva); }
+.radio-boton:active { transform: scale(.97); }
+.radio-boton svg { width: 16px; height: 16px; fill: currentColor; stroke: none; }
+.radio-boton.primario { background: var(--acento); color: var(--sobre-acento); }
+.radio-boton.primario:hover { background: var(--acento-claro); }
+.radio-boton.primario:disabled { background: var(--superficie-2); color: var(--tenue); cursor: default; }
+.radio-boton.campana svg { fill: none; stroke: currentColor; stroke-width: 1.8; }
+.radio-spotify { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border: 1px solid rgba(95, 208, 160, .4); border-radius: 999px; color: var(--verde); font-size: 12.5px; font-weight: 650; text-decoration: none; white-space: nowrap; transition: background .2s; }
+.radio-spotify:hover { background: var(--radio-verde-suave); }
+.radio-spotify svg { width: 15px !important; height: 15px !important; }
+.radio-que-suena { height: 30px; padding: 0 12px; margin-top: 4px; border: 1px solid var(--borde-suave); border-radius: 999px; font-size: 12.5px; color: var(--acento-claro) !important; white-space: nowrap; }
+.radio-que-suena:hover { border-color: var(--borde); background: var(--superficie); }
+.radio-estrella { width: 38px; height: 44px; display: grid; place-items: center; border-radius: 10px; color: var(--tenue); transition: color .2s, transform .15s var(--curva); }
+.radio-estrella:hover { color: var(--texto-2); }
+.radio-estrella.on { color: var(--ambar); }
+.radio-estrella.on svg { fill: currentColor; }
+.radio-estrella:active { transform: scale(.9); }
+.radio-play {
+  width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 50%;
+  border: 1px solid var(--borde); background: var(--superficie); color: var(--acento-claro); transition: background .2s, border-color .2s, transform .15s var(--curva);
+}
+.radio-play svg { width: 16px; height: 16px; fill: currentColor; stroke: none; margin-left: 2px; }
+.radio-play:hover { border-color: var(--borde-fuerte); background: var(--superficie-2); }
+.radio-play:active { transform: scale(.94); }
+.radio-play.sonando { background: var(--acento); border-color: var(--acento); color: var(--sobre-acento); }
+.radio-play.sonando svg { margin-left: 0; }
+.radio-play:disabled { opacity: .45; cursor: default; }
+
+/* ---------- buscador ---------- */
+.radio-buscador { margin-top: 22px; }
+.radio-buscador label { display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 8px 0 14px; border: 1px solid var(--borde); border-radius: var(--r-m); background: var(--superficie); color: var(--tenue); transition: border-color .2s; }
+.radio-buscador label:focus-within { border-color: var(--acento); color: var(--acento-claro); }
+.radio-buscador input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--texto); font: inherit; font-size: 16px; caret-color: var(--acento); }
+.radio-buscador input::placeholder { color: var(--tenue); }
+.radio-buscador input::-webkit-search-cancel-button { display: none; }
+.radio-limpiar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; color: var(--muted); }
+.radio-sugerencias { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.radio-sugerencias small { width: 100%; font-size: 12px; color: var(--tenue); }
+.radio-sugerencias button { height: 32px; padding: 0 12px; border: 1px solid var(--borde-suave); border-radius: 999px; background: var(--superficie); font-size: 13px; color: var(--texto-2) !important; }
+.radio-resultado { margin-top: 12px; padding: 14px; border: 1px solid var(--borde); border-radius: var(--r-m); background: var(--superficie); }
+.radio-resultado h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--tenue); }
+.radio-resultado p { margin: 6px 0 0; font-size: 14.5px; line-height: 1.45; color: var(--texto-2); }
+.radio-resultado p b { color: var(--texto); }
+.radio-resultado .radio-acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.radio-coincidencia { display: grid; grid-template-columns: 1fr 44px; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--borde-suave); }
+.radio-coincidencia:last-child { border-bottom: 0; padding-bottom: 0; }
+.radio-coincidencia b { display: block; font-size: 15px; font-weight: 600; }
+.radio-coincidencia > div > span { display: block; margin: 2px 0 8px; font-size: 13px; color: var(--texto-2); }
+.radio-coincidencia strong { color: var(--verde); font-weight: 650; font-variant-numeric: tabular-nums; }
+.radio-buscando { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 8px 12px 14px; border: 1px solid rgba(224, 178, 106, .4); border-radius: var(--r-m); background: var(--radio-ambar-suave); }
+.radio-radar { position: relative; width: 22px; height: 22px; flex: none; }
+.radio-radar::before, .radio-radar::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--ambar); }
+.radio-radar::after { animation: radio-radar 1.8s var(--curva) infinite; }
+@keyframes radio-radar { from { transform: scale(.3); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+.radio-buscando div { flex: 1; min-width: 0; }
+.radio-buscando b { display: block; font-size: 14.5px; font-weight: 650; overflow-wrap: anywhere; }
+.radio-buscando small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--texto-2); }
+.radio-buscando button { height: 34px; padding: 0 12px; border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--ambar) !important; }
+
+/* ---------- pestañas y listas ---------- */
+.radio-pestanas { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 24px; padding: 4px; border-radius: var(--r-m); background: var(--fondo-hondo); border: 1px solid var(--borde-suave); }
+.radio-pestanas button { height: 40px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--muted) !important; transition: background .2s, color .2s; }
+.radio-pestanas button span { margin-left: 4px; font-weight: 500; color: var(--tenue); font-variant-numeric: tabular-nums; }
+.radio-pestanas button[aria-selected="true"] { background: var(--superficie-2); color: var(--texto) !important; }
+.radio-subtitulo { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 0 2px; font-size: 13px; font-weight: 600; color: var(--tenue); }
+.radio-subtitulo span { font-weight: 500; font-variant-numeric: tabular-nums; }
+.radio-lista { list-style: none; margin: 0; padding: 0; }
+.radio-fila {
+  display: grid; grid-template-columns: 62px 1fr auto; align-items: center; gap: 10px;
+  padding: 12px 8px; margin: 0 -8px; border-bottom: 1px solid var(--borde-suave); border-radius: var(--r-s); transition: background .3s;
+}
+.radio-fila:last-child { border-bottom: 0; }
+.radio-fila.marcada { background: var(--acento-suave); }
+.radio-fila.nuevo { animation: radio-destello 2.4s var(--curva); }
+@keyframes radio-destello { from { background: rgba(95, 208, 160, .22); } }
+.radio-fila-dial { font-size: 20px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.05; text-align: left; }
+.radio-fila-dial small { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 550; letter-spacing: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.radio-fila-dial:hover { color: var(--acento-claro); }
+.radio-fila-texto { min-width: 0; }
+.radio-fila-texto b { display: block; font-size: 15px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.radio-fila-texto > span { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 13px; color: var(--texto-2); min-width: 0; }
+.radio-fila-texto > span em { font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.radio-fila-texto small { display: block; margin-top: 3px; font-size: 12px; color: var(--tenue); }
+.radio-fila.sin .radio-fila-texto b { color: var(--texto-2); font-weight: 550; }
+.radio-fila.mal .radio-fila-texto b { color: var(--rojo-claro); }
+.radio-fila-botones { display: flex; align-items: center; gap: 2px; }
+.radio-etiqueta { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 5px; border-radius: 999px; background: var(--radio-verde-suave); color: var(--verde); font-size: 11px; font-weight: 650; font-style: normal; }
+.radio-etiqueta svg { width: 11px !important; height: 11px !important; stroke-width: 2.2 !important; }
+.radio-vacio { padding: 18px 0 6px; font-size: 14px; line-height: 1.5; color: var(--tenue); }
+
+.radio-ondas { display: flex; align-items: flex-end; gap: 3px; width: 22px; height: 20px; flex: none; }
+.radio-ondas i { flex: 1; height: 30%; border-radius: 2px; background: var(--acento-claro); animation: radio-onda 1s ease-in-out infinite; }
+.radio-ondas i:nth-child(2) { animation-delay: -.3s; } .radio-ondas i:nth-child(3) { animation-delay: -.6s; } .radio-ondas i:nth-child(4) { animation-delay: -.15s; }
+.radio-ondas.ambar i { background: var(--ambar); }
+.radio-ondas.quietas i { animation-play-state: paused; opacity: .5; }
+@keyframes radio-onda { 50% { height: 100%; } }
+
+.radio-interruptores { display: flex; flex-direction: column; gap: 10px; margin-top: 26px; }
+.radio-interruptores .usdt-interruptor { margin: 0; }
+
+/* ---------- reproductor ---------- */
+.radio-reproductor {
+  position: sticky; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 4;
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 14px; margin-top: 18px;
+  border: 1px solid var(--borde-fuerte); border-radius: var(--r-l); background: var(--superficie-2);
+  box-shadow: 0 -10px 30px -12px rgba(0, 0, 0, .6);
+}
+.radio-repro-texto { flex: 1; min-width: 0; line-height: 1.25; }
+.radio-repro-texto b { display: block; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.radio-repro-texto span { display: block; font-size: 12.5px; color: var(--texto-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.radio-repro-boton { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 50%; color: var(--texto); }
+.radio-repro-boton:hover { background: var(--superficie); }
+.radio-repro-boton.principal { background: var(--acento); color: var(--sobre-acento); }
+.radio-repro-boton.principal svg { fill: currentColor; stroke: none; width: 16px; height: 16px; }
+
+/* Inicio: en el teléfono es una fila más de la lista (mismo molde que PC y Luz); en pantalla ancha, una tarjeta a lo ancho para no dejar
+   una suelta en la grilla de 3. */
+@media (min-width: 700px) {
+  #mosaico-radio { grid-column: 1 / -1; min-height: 0; }
+  /* Es una lista: a todo el ancho de la PC, la estrella y el play quedaban a un metro del nombre de la canción. */
+  #radio-contenido { max-width: 760px; margin-inline: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #vista-radio *, #vista-radio *::before, #vista-radio *::after { animation: none !important; transition: none !important; }
+}

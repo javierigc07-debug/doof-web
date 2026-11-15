@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.15-b708f7b02a';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.15-5b645af2c9';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -1000,7 +1000,7 @@
     }
     let grupoAnterior = '';
     for (const c of lista) {
-      const grupo = grupoFecha(c.inicio);
+      const grupo = grupoFecha(c.actualizada || c.inicio);
       if (grupo !== grupoAnterior) {
         const etiqueta = document.createElement('div');
         etiqueta.className = 'grupo';
@@ -3753,7 +3753,7 @@
 
     const grupos = new Map();
     for (const c of lista) {
-      const g = grupoFecha(c.inicio);
+      const g = grupoFecha(c.actualizada || c.inicio);
       if (!grupos.has(g)) grupos.set(g, []);
       grupos.get(g).push(c);
     }

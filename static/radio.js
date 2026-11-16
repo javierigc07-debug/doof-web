@@ -224,7 +224,12 @@
 
   async function saltarCancionDoof(boton) {
     if (boton) boton.disabled = true;
-    try { await app().api('/radiodoof/saltar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); }
+    try {
+      await app().api('/radiodoof/saltar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      // RadioDoof manda 30 s por adelantado: lo que ya bajó es de la canción vieja. Se vuelve a conectar para entrar a la nueva.
+      const r = porId('radiodoof');
+      if (r && R.sonando === r.id && !R.pausado) { R.reintentos = 0; conectarAudio(r, false); }
+    }
     catch (e) { if (app().avisar) app().avisar('No pude saltar: ' + (e.message || 'sin conexión')); }
     finally { if (boton) boton.disabled = false; }
   }

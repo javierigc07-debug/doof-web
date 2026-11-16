@@ -222,6 +222,13 @@
   audio.addEventListener('playing', () => { R.reintentos = 0; R.pausado = false; if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; pintar(); });
   audio.addEventListener('pause', () => { if ('mediaSession' in navigator && R.sonando) navigator.mediaSession.playbackState = 'paused'; });
 
+  async function saltarCancionDoof(boton) {
+    if (boton) boton.disabled = true;
+    try { await app().api('/radiodoof/saltar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); }
+    catch (e) { if (app().avisar) app().avisar('No pude saltar: ' + (e.message || 'sin conexión')); }
+    finally { if (boton) boton.disabled = false; }
+  }
+
   function siguienteFavorita(paso) {
     const lista = favoritas().filter((r) => r.estado !== 'error_stream');
     if (!lista.length) return;
@@ -250,7 +257,7 @@
     accion('play', () => { R.pausado = false; audio.play().catch(() => {}); pintar(); });
     accion('pause', () => { R.pausado = true; audio.pause(); pintar(); });
     accion('stop', detener);
-    accion('nexttrack', () => siguienteFavorita(1));
+    accion('nexttrack', () => { const r = porId(R.sonando); if (r && r.propia) saltarCancionDoof(); else siguienteFavorita(1); });
     accion('previoustrack', () => siguienteFavorita(-1));
   }
 
@@ -310,6 +317,7 @@
       aria-label="${activa ? 'Pausar' : 'Escuchar'} ${esc(r.dial)} ${esc(r.nombre)}">${activa ? I.pausa : I.play}</button>`;
   }
   function botonEstrella(r) {
+    if (r.propia) return '';            // RadioDoof es de Doof: siempre está, no se quita de favoritas
     const on = !!r.favorita;
     return `<button class="radio-estrella${on ? ' on' : ''}" type="button" data-estrella="${esc(r.id)}" aria-pressed="${on}"
       aria-label="${on ? 'Quitar de favoritas' : 'Agregar a favoritas'} ${esc(r.dial)} ${esc(r.nombre)}">${I.estrella}</button>`;
@@ -337,6 +345,7 @@
     // [principal, secundaria(html), pie(html)]
     if (r.estado === 'match') {
       const et = r.gusta ? `<i class="radio-etiqueta">${I.corazon}${r.gusta === 'spotify' ? 'Spotify' : 'te gusta'}</i>` : '';
+      if (r.propia) return [esc(r.titulo), `<em>${esc(r.artista)}</em>`, r.bumper ? 'Doof al micrófono' : `Tu música${r.familia ? ' · ' + esc(r.familia) : ''}`];
       return [esc(r.titulo), `<em>${esc(r.artista)}</em>${et}`, `Reconocida ${hace(r.ts)}`];
     }
     if (r.estado === 'error_stream') return ['Sin señal', '<em>La radio no está mandando audio</em>', r.ts ? `Probé ${hace(r.ts)}` : ''];
@@ -393,6 +402,11 @@
       const origen = r.origen ? ` · está en ${esc(r.origen)}` : r.gusta ? ' · está en tus gustos' : '';
       texto = `<div class="radio-sintonizada-texto">${r.gusta ? `<div class="radio-tuya">${I.corazon}Es de lo tuyo</div>` : ''}<b>${esc(c.titulo)}</b><span>${esc(c.artista)}</span>
         ${barraCancion(r)}<small>Reconocida ${hace(r.ts)}${origen}${r.favorita ? '' : ' · no es favorita'}${consultando ? ' · <em class="radio-comprobando">comprobando…</em>' : ''}</small></div>`;
+      if (r.propia) {
+        const sig = r.siguiente ? `Después: ${esc(r.siguiente.titulo)} · ${esc(r.siguiente.artista)}` : 'Tu música, mezclada por Doof';
+        texto = `<div class="radio-sintonizada-texto">${r.bumper ? '<div class="radio-tuya">Doof al micrófono · después suena</div>' : ''}<b>${esc(c.titulo)}</b><span>${esc(c.artista)}</span>
+          ${r.bumper ? '' : barraCancion(r)}<small>${sig}${r.familia ? ' · ' + esc(r.familia) : ''}</small></div>`;
+      }
       buscarEnlaceSpotify(c);
     } else {
       const [principal, , pie] = textoDeEstado(r);
@@ -400,7 +414,8 @@
       const clase = r.estado === 'error_stream' ? 'mal' : 'sin';
       texto = `<div class="radio-sintonizada-texto ${clase}"><b>${principal}</b><small>${u || ''}${consultando ? ' · <em class="radio-comprobando">comprobando…</em>' : ''}</small></div>`;
     }
-    caja.innerHTML = `${texto}<div class="radio-sintonizada-botones">${boton}<div class="radio-fila-mini">${c ? enlaceSpotify(c) : ''}${botonEstrella(r)}</div></div>`;
+    const saltarDoof = r.propia && c ? `<button class="radio-boton" type="button" data-saltar-doof>${I.der}Saltar</button>` : '';
+    caja.innerHTML = `${texto}<div class="radio-sintonizada-botones">${boton}${saltarDoof}<div class="radio-fila-mini">${c ? enlaceSpotify(c) : ''}${botonEstrella(r)}</div></div>`;
     moverBarras();
   }
 
@@ -410,7 +425,7 @@
     let html = '';
     for (let n = 88; n <= 108; n++) html += `<span class="radio-mhz" style="left:${xDe(n)}px">${n}</span>`;
     html += enDial().map((r) => {
-      const clase = !r.favorita ? 'otra' : r.estado === 'error_stream' ? 'mal' : r.estado === 'match' ? (r.gusta ? 'tuya' : 'musica') : '';
+      const clase = r.propia ? 'propia' : !r.favorita ? 'otra' : r.estado === 'error_stream' ? 'mal' : r.estado === 'match' ? (r.gusta ? 'tuya' : 'musica') : '';
       return `<button class="radio-estacion ${clase}${R.sintonizada === r.id ? ' en-aguja' : ''}${R.nuevos.has(r.id) ? ' nuevo' : ''}" type="button" tabindex="-1"
         style="left:${xDe(r.dial)}px" data-sintonizar="${esc(r.id)}" aria-label="${esc(r.dial)} ${esc(r.nombre)}"><span>${esc(r.dial)}</span><i></i></button>`;
     }).join('');
@@ -738,6 +753,8 @@
         else pedirQueEscuche(id);
         return;
       }
+      const saltarDoof = t.closest('[data-saltar-doof]');
+      if (saltarDoof) { saltarCancionDoof(saltarDoof); return; }
       const est = t.closest('[data-estrella]');
       if (est) {
         const r = porId(est.dataset.estrella);

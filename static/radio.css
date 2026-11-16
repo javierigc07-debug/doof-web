@@ -55,6 +55,9 @@ body[data-vista="radio"] #barra { border-bottom-color: var(--borde-suave); }
 .radio-estacion.musica i { background: var(--verde); }
 .radio-estacion.tuya i { background: var(--verde); box-shadow: 0 0 0 4px var(--radio-verde-suave); }
 .radio-estacion.mal i { background: var(--rojo); }
+/* RadioDoof (87.5): la emisora de Doof con la música de Javier, siempre al aire. */
+.radio-estacion.propia i { background: var(--acento); box-shadow: 0 0 0 4px rgba(91, 140, 255, .22); }
+.radio-estacion.propia span { color: var(--acento); }
 .radio-estacion.otra i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--tenue); }
 .radio-estacion.otra span { color: var(--tenue); font-weight: 500; }
 .radio-estacion.en-aguja span { color: var(--texto); }

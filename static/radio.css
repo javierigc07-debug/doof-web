@@ -77,6 +77,13 @@ body[data-vista="radio"] #barra { border-bottom-color: var(--borde-suave); }
 .radio-fila-mini { display: flex; align-items: center; gap: 2px; }
 .radio-escuchando { display: flex; align-items: center; gap: 10px; }
 .radio-comprobando { font-style: normal; color: var(--ambar); }
+.radio-progreso { display: flex; align-items: center; gap: 10px; max-width: 360px; margin-top: 9px; }
+.radio-progreso-pista { flex: 1; height: 3px; border-radius: 2px; background: var(--borde); overflow: hidden; }
+.radio-progreso-pista i { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--acento); transition: width 1s linear; }
+.radio-progreso-texto { font-size: 12px; color: var(--tenue); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.radio-progreso.termino .radio-progreso-pista i { background: var(--ambar); }
+.radio-progreso.termino .radio-progreso-texto { color: var(--ambar); }
+@media (prefers-reduced-motion: reduce) { .radio-progreso-pista i { transition: none; } }
 
 .radio-tambien { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--tenue); }
 .radio-tambien:empty { display: none; }

@@ -61,6 +61,28 @@
   };
   const hace = (ts) => ts ? `<time data-ts="${ts}">${haceTexto(ts)}</time>` : '';
 
+  // Lo que le queda a la canción: Doof sabe cuándo termina (offset de Shazam + duración de iTunes) y la barra avanza aquí sola,
+  // sin pedirle nada. Al terminar dice "terminando…" en vez de dejar el título viejo como si siguiera.
+  const minSeg = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const barraCancion = (r) => (r.fin_estimado && r.duracion)
+    ? `<div class="radio-progreso" data-id="${esc(r.id)}" data-fin="${r.fin_estimado}" data-dur="${r.duracion}"><span class="radio-progreso-pista"><i></i></span><span class="radio-progreso-texto"></span></div>`
+    : '';
+  function moverBarras() {
+    const ahora = Date.now() / 1000;
+    document.querySelectorAll('#vista-radio .radio-progreso').forEach((el) => {
+      const queda = +el.dataset.fin - ahora;
+      el.querySelector('i').style.width = `${Math.min(100, Math.max(0, (1 - queda / +el.dataset.dur) * 100))}%`;
+      el.querySelector('.radio-progreso-texto').textContent = queda > 0 ? `queda ${minSeg(queda)}` : 'terminando…';
+      el.classList.toggle('termino', queda <= 0);
+      // Las favoritas las relee Doof solo; una del directorio sintonizada se le pide al terminar (una vez por canción).
+      const r = porId(el.dataset.id);
+      if (queda < -8 && r && !r.favorita && R.sintonizada === r.id && !R.consultando.has(r.id) && R.pedidoAlTerminar !== el.dataset.fin) {
+        R.pedidoAlTerminar = el.dataset.fin;
+        pedirQueEscuche(r.id);
+      }
+    });
+  }
+
   const I = {
     play: '<svg viewBox="0 0 24 24"><path d="M7 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L8.5 4.64A1 1 0 0 0 7 5.5z"/></svg>',
     pausa: '<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
@@ -370,7 +392,7 @@
     } else if (c) {
       const origen = r.origen ? ` · está en ${esc(r.origen)}` : r.gusta ? ' · está en tus gustos' : '';
       texto = `<div class="radio-sintonizada-texto">${r.gusta ? `<div class="radio-tuya">${I.corazon}Es de lo tuyo</div>` : ''}<b>${esc(c.titulo)}</b><span>${esc(c.artista)}</span>
-        <small>Reconocida ${hace(r.ts)}${origen}${r.favorita ? '' : ' · no es favorita'}${consultando ? ' · <em class="radio-comprobando">comprobando…</em>' : ''}</small></div>`;
+        ${barraCancion(r)}<small>Reconocida ${hace(r.ts)}${origen}${r.favorita ? '' : ' · no es favorita'}${consultando ? ' · <em class="radio-comprobando">comprobando…</em>' : ''}</small></div>`;
       buscarEnlaceSpotify(c);
     } else {
       const [principal, , pie] = textoDeEstado(r);
@@ -379,6 +401,7 @@
       texto = `<div class="radio-sintonizada-texto ${clase}"><b>${principal}</b><small>${u || ''}${consultando ? ' · <em class="radio-comprobando">comprobando…</em>' : ''}</small></div>`;
     }
     caja.innerHTML = `${texto}<div class="radio-sintonizada-botones">${boton}<div class="radio-fila-mini">${c ? enlaceSpotify(c) : ''}${botonEstrella(r)}</div></div>`;
+    moverBarras();
   }
 
   function pintarDial() {
@@ -771,7 +794,7 @@
     else if (!ahora && R.activa) salir();
   }).observe(document.body, { attributes: true, attributeFilter: ['data-vista'] });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && R.activa) cargar(); });
-  setInterval(() => { document.querySelectorAll('#vista-radio [data-ts]').forEach((el) => { el.textContent = haceTexto(+el.dataset.ts); }); }, 1000);
+  setInterval(() => { document.querySelectorAll('#vista-radio [data-ts]').forEach((el) => { el.textContent = haceTexto(+el.dataset.ts); }); moverBarras(); }, 1000);
   setInterval(pintarMosaico, 30000);
 
   window.DoofRadio = { evento, entrar, salir };

@@ -410,7 +410,7 @@
       if (r.propia) {
         const sig = r.siguiente ? `Después: ${esc(r.siguiente.titulo)} · ${esc(r.siguiente.artista)}` : 'Tu música, mezclada por Doof';
         texto = `<div class="radio-sintonizada-texto">${r.bumper ? '<div class="radio-tuya">Doof al micrófono · después suena</div>' : ''}<b>${esc(c.titulo)}</b><span>${esc(c.artista)}</span>
-          ${r.bumper ? '' : barraCancion(r)}<small>${sig}${r.familia ? ' · ' + esc(r.familia) : ''}</small></div>`;
+          ${r.bumper ? '' : barraCancion(r)}<small>${sig}${r.pedido ? ' · a pedido: ' + esc(r.pedido) : (r.familia ? ' · ' + esc(r.familia) : '')}</small></div>`;
       }
       buscarEnlaceSpotify(c);
     } else {

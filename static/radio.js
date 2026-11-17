@@ -18,7 +18,14 @@
   const F_MIN = 87.5;
   const REFRESCO_MS = 45000;           // renueva el "estoy mirando" del HUD (dura 90 s) y trae lo que se haya perdido
   const ESPERA_SINTONIA_MS = 700;      // la aguja tiene que quedarse quieta esto antes de pedir que Doof escuche esa radio
-  const MAX_REINTENTOS_AUDIO = 6;
+  // 17 nov 2026: RadioDoof se quedaba muda y había que salir y volver a ponerla. El log de la PC lo mostraba: la emisión se apagaba
+  // «sin oyentes» y Javier volvía a entrar a mano un minuto después. Chrome en Android, cuando el túnel o la red cortan el stream,
+  // suele quedarse esperando datos para siempre sin disparar 'error' ni 'ended'. Por eso se vigila que el audio avance de verdad, y se
+  // reintenta sin tope mientras Javier quiera escuchar.
+  const ESPERA_MAX_REINTENTO_MS = 10000;
+  const SILENCIO_MAX_MS = 10000;        // sonando sin avanzar esto: el stream murió
+  const CONECTANDO_MAX_MS = 20000;      // conectando sin arrancar esto: se intenta de nuevo
+  const AVISO_CORTE_MS = 60000;
   const CLAVE_AHORRO = 'doof_radio_ahorro';
 
   const R = {
@@ -34,6 +41,13 @@
     pausado: false,
     reintentos: 0,
     cargandoAudio: false,
+    intento: 0,               // cada conexión nueva lo sube: una vieja que termina tarde no pisa el estado de la nueva
+    conectandoDesde: 0,
+    reconexion: 0,            // timer del próximo reintento
+    cortadoDesde: 0,
+    avisadoCorte: false,
+    ultimoTiempo: -1,
+    ultimoAvance: 0,
     spotify: new Map(),       // "artista|titulo" -> enlace exacto
     ahorro: leerAhorro(),
     activa: false,
@@ -160,8 +174,7 @@
     const r = porId(id);
     if (!r) return;
     if (R.sonando === id && !R.cargandoAudio) {
-      if (audio.paused) { R.pausado = false; audio.play().catch(() => {}); } else { R.pausado = true; audio.pause(); }
-      pintar();
+      if (audio.paused) reanudar(); else pausar();
       return;
     }
     R.sonando = id;
@@ -171,32 +184,60 @@
   }
 
   async function conectarAudio(r, directo) {
+    const intento = ++R.intento;
+    const vigente = () => intento === R.intento && R.sonando === r.id;
     R.cargandoAudio = true;
+    R.conectandoDesde = Date.now();
     pintar();
     try {
       if (directo) {
         audio.src = r.directo;
       } else {
         const pase = await app().api('/radio/pase', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: r.id, baja: R.ahorro }) });
-        if (R.sonando !== r.id) return;
+        if (!vigente()) return;
         audio.src = (app().base ? app().base() : '') + pase.ruta;
       }
       audio.dataset.directo = directo ? '1' : '';
       await audio.play();
     } catch (e) {
-      if (R.sonando !== r.id) return;
+      if (!vigente()) return;           // la reemplazó otra conexión (su play() se aborta): no es una falla
       if (e && e.name === 'NotAllowedError') { R.pausado = true; }
-      else if (directo) { return await conectarAudio(r, false); }      // el https directo falló: por la PC
-      else if (app().avisar) app().avisar('No pude conectar con ' + r.nombre + (e && e.sinRed ? ': la PC no responde' : ''));
+      else if (directo) { R.cargandoAudio = false; return await conectarAudio(r, false); }      // el https directo falló: por la PC
+      else { R.cargandoAudio = false; reconectar(); }       // antes se rendía con un aviso: ahora reintenta hasta que vuelva
     } finally {
-      if (R.sonando === r.id) R.cargandoAudio = false;
+      if (vigente()) R.cargandoAudio = false;
       actualizarSesionMedia();
       pintar();
       pintarMosaico();
     }
   }
 
+  function cancelarReconexion() {
+    clearTimeout(R.reconexion);
+    R.reconexion = 0;
+  }
+
+  function pausar() {
+    R.pausado = true;
+    cancelarReconexion();
+    audio.pause();
+    pintar();
+  }
+
+  // Una radio en vivo pausada un rato ya no tiene conexión del otro lado (la PC la soltó): darle play otra vez al mismo <audio> la
+  // dejaba muda. Se vuelve a conectar y entra a lo que suena ahora.
+  function reanudar() {
+    const r = porId(R.sonando);
+    if (!r) return;
+    R.pausado = false;
+    R.reintentos = 0;
+    cancelarReconexion();
+    conectarAudio(r, !R.ahorro && !!r.directo);
+  }
+
   function detener() {
+    cancelarReconexion();
+    R.intento += 1;
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
@@ -208,18 +249,52 @@
   }
 
   // Cambios de red (Wi-Fi -> datos), una radio que se corta: vuelve a conectar sola en vez de quedarse muda.
-  function reconectar() {
+  // Sin tope de intentos: un cambio de Wi-Fi a datos puede tardar más de medio minuto. Se deja de intentar solo si Javier pausa o
+  // cambia de radio.
+  function reconectar(inmediato) {
     const r = porId(R.sonando);
-    if (!r || R.pausado || R.reintentos >= MAX_REINTENTOS_AUDIO) {
-      if (r && R.reintentos >= MAX_REINTENTOS_AUDIO && app().avisar) app().avisar(r.nombre + ' se cortó y no vuelve');
-      return;
+    if (!r || R.pausado) return;
+    if (R.reconexion) {
+      if (!inmediato) return;
+      cancelarReconexion();
+    }
+    if (!R.cortadoDesde) R.cortadoDesde = Date.now();
+    if (!R.avisadoCorte && Date.now() - R.cortadoDesde > AVISO_CORTE_MS && app().avisar) {
+      R.avisadoCorte = true;
+      app().avisar(r.nombre + ' se cortó: sigo intentando');
     }
     R.reintentos += 1;
-    setTimeout(() => { if (R.sonando === r.id && !R.pausado) conectarAudio(r, !R.ahorro && !!r.directo && audio.dataset.directo === '1'); }, 1500 * R.reintentos);
+    const espera = inmediato ? 0 : Math.min(1500 * R.reintentos, ESPERA_MAX_REINTENTO_MS);
+    R.reconexion = setTimeout(() => {
+      R.reconexion = 0;
+      if (R.sonando === r.id && !R.pausado) conectarAudio(r, !R.ahorro && !!r.directo && audio.dataset.directo === '1');
+    }, espera);
   }
   audio.addEventListener('error', () => { if (R.sonando && !R.cargandoAudio) reconectar(); });
   audio.addEventListener('ended', () => { if (R.sonando) reconectar(); });
-  audio.addEventListener('playing', () => { R.reintentos = 0; R.pausado = false; if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; pintar(); });
+  audio.addEventListener('playing', () => {
+    R.reintentos = 0; R.pausado = false; R.cortadoDesde = 0; R.avisadoCorte = false; R.ultimoAvance = Date.now();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    pintar();
+  });
+
+  // El vigilante: si el audio dice que suena pero no avanza (o lleva demasiado conectando), el stream murió sin avisar.
+  setInterval(() => {
+    const ahora = Date.now();
+    if (!R.sonando || R.pausado || R.reconexion) { R.ultimoAvance = ahora; return; }
+    if (R.cargandoAudio) {
+      if (ahora - R.conectandoDesde > CONECTANDO_MAX_MS) { R.intento += 1; R.cargandoAudio = false; reconectar(true); }
+      return;
+    }
+    if (audio.paused) { R.ultimoAvance = ahora; return; }      // lo pausó el sistema (una llamada): no se reconecta encima
+    if (audio.currentTime !== R.ultimoTiempo) { R.ultimoTiempo = audio.currentTime; R.ultimoAvance = ahora; return; }
+    if (ahora - R.ultimoAvance > SILENCIO_MAX_MS) { R.ultimoAvance = ahora; reconectar(true); }
+  }, 3000);
+  // Volvió la red (Wi-Fi -> datos) o Javier volvió a la app con la radio muda: no se espera al vigilante.
+  window.addEventListener('online', () => { if (R.sonando && !R.pausado) reconectar(true); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && R.sonando && !R.pausado && !R.cargandoAudio && !audio.paused && audio.readyState < 3) reconectar(true);
+  });
   audio.addEventListener('pause', () => { if ('mediaSession' in navigator && R.sonando) navigator.mediaSession.playbackState = 'paused'; });
 
   async function saltarCancionDoof(boton) {
@@ -259,8 +334,8 @@
   }
   if ('mediaSession' in navigator) {
     const accion = (nombre, fn) => { try { navigator.mediaSession.setActionHandler(nombre, fn); } catch (e) { /* acción no soportada */ } };
-    accion('play', () => { R.pausado = false; audio.play().catch(() => {}); pintar(); });
-    accion('pause', () => { R.pausado = true; audio.pause(); pintar(); });
+    accion('play', reanudar);
+    accion('pause', pausar);
     accion('stop', detener);
     accion('nexttrack', () => { const r = porId(R.sonando); if (r && r.propia) saltarCancionDoof(); else siguienteFavorita(1); });
     accion('previoustrack', () => siguienteFavorita(-1));
@@ -410,7 +485,7 @@
       if (r.propia) {
         const sig = r.siguiente ? `Después: ${esc(r.siguiente.titulo)} · ${esc(r.siguiente.artista)}` : 'Tu música, mezclada por Doof';
         texto = `<div class="radio-sintonizada-texto">${r.bumper ? '<div class="radio-tuya">Doof al micrófono · después suena</div>' : ''}<b>${esc(c.titulo)}</b><span>${esc(c.artista)}</span>
-          ${r.bumper ? '' : barraCancion(r)}<small>${sig}${r.pedido ? ' · a pedido: ' + esc(r.pedido) : (r.familia ? ' · ' + esc(r.familia) : '')}</small></div>`;
+          ${r.bumper ? '' : barraCancion(r)}<small>${sig}${r.programa ? ' · 🎙 ' + esc(r.programa) : r.pedido ? ' · a pedido: ' + esc(r.pedido) : (r.familia ? ' · ' + esc(r.familia) : '')}</small></div>`;
       }
       buscarEnlaceSpotify(c);
     } else {

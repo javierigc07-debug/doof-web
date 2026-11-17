@@ -78,6 +78,15 @@
   // Lo que le queda a la canción: Doof sabe cuándo termina (offset de Shazam + duración de iTunes) y la barra avanza aquí sola,
   // sin pedirle nada. Al terminar dice "terminando…" en vez de dejar el título viejo como si siguiera.
   const minSeg = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  // El saldo de la voz de Doof (API de Fish Audio, no se recarga solo): Javier pidió un medidor (17 nov 2026). La barra va contra el
+  // 1.0 con que empezó la cuenta; con menos de 0.15 el especial automático ya no arranca, y se avisa.
+  const medidorVoz = (m) => {
+    if (!m) return '';
+    const pct = Math.max(0, Math.min(100, m.saldo * 100));
+    const bajo = m.saldo < 0.15;
+    return `<div class="radio-voz-saldo${bajo ? ' radio-voz-saldo-bajo' : ''}"><span class="radio-progreso-pista"><i style="width:${pct}%"></i></span>
+      <small>🎙 Voz de Doof: ${m.saldo.toFixed(2)} · ~${m.especiales} especiales${bajo ? ' · sin saldo para el especial diario' : ''}</small></div>`;
+  };
   const barraCancion = (r) => (r.fin_estimado && r.duracion)
     ? `<div class="radio-progreso" data-id="${esc(r.id)}" data-fin="${r.fin_estimado}" data-dur="${r.duracion}"><span class="radio-progreso-pista"><i></i></span><span class="radio-progreso-texto"></span></div>`
     : '';
@@ -134,6 +143,7 @@
     }
     pintar();
     pintarMosaico();
+    if (R.sonando && R.datos) actualizarSesionMedia();      // también la pantalla de bloqueo, no solo la lista
   }
 
   function elegirAlEntrar() {
@@ -327,11 +337,12 @@
     if (r.dial) sintonizar(r.id, true);
   }
 
-  function actualizarSesionMedia() {
+  // `forzada` ({titulo, artista}): la que ya debería estar sonando según el reloj, antes de que la PC lo confirme (ver programarCambio).
+  function actualizarSesionMedia(forzada) {
     if (!('mediaSession' in navigator)) return;
     const r = porId(R.sonando);
     if (!r) return;
-    const c = cancion(r);
+    const c = forzada || cancion(r);
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: c ? c.titulo : r.nombre,
@@ -340,7 +351,31 @@
         artwork: [{ src: 'static/iconos/icono-512.png', sizes: '512x512', type: 'image/png' }],
       });
     } catch (e) { /* navegador sin MediaMetadata */ }
+    programarCambio();
   }
+
+  // ---------------------------------------------------------------- en segundo plano (17 nov 2026)
+  // Javier: "te sales de la app y deja de decirte qué canción está sonando; vuelves y tarda en actualizar". Con la app oculta no
+  // llegaban los eventos (el long-polling espera a que sea visible) ni se recargaba la radio (solo con la sección a la vista). Mientras
+  // algo suena: (1) RadioDoof avisa sola el cambio: ya se sabe cuándo termina la canción (fin_estimado) y cuál sigue, así que a ese
+  // segundo la pantalla de bloqueo pasa a la siguiente y después se confirma con la PC; (2) cualquier radio se recarga cada
+  // REFRESCO_MS aunque la app esté oculta. Chrome no frena los temporizadores de una página que está sonando.
+  function programarCambio() {
+    clearTimeout(R.relojCambio);
+    const r = porId(R.sonando);
+    if (!r || !r.propia || !r.fin_estimado) return;
+    const ms = r.fin_estimado * 1000 - Date.now() + 1200;
+    if (ms <= 0 || ms > 20 * 60 * 1000) return;
+    R.relojCambio = setTimeout(() => {
+      if (!R.sonando || R.pausado || audio.paused) return;
+      const sig = (porId(R.sonando) || {}).siguiente;
+      if (sig) actualizarSesionMedia({ titulo: sig.titulo, artista: sig.artista });
+      cargar();
+    }, ms);
+  }
+  setInterval(() => {
+    if (R.sonando && !R.pausado && !audio.paused && (document.hidden || !R.activa)) cargar();
+  }, REFRESCO_MS);
   if ('mediaSession' in navigator) {
     const accion = (nombre, fn) => { try { navigator.mediaSession.setActionHandler(nombre, fn); } catch (e) { /* acción no soportada */ } };
     accion('play', reanudar);
@@ -494,7 +529,7 @@
       if (r.propia) {
         const sig = r.siguiente ? `Después: ${esc(r.siguiente.titulo)} · ${esc(r.siguiente.artista)}` : 'Tu música, mezclada por Doof';
         texto = `<div class="radio-sintonizada-texto">${r.bumper ? '<div class="radio-tuya">Doof al micrófono · después suena</div>' : ''}<b>${esc(c.titulo)}</b><span>${esc(c.artista)}</span>
-          ${r.bumper ? '' : barraCancion(r)}<small>${sig}${r.programa ? ' · 🎙 ' + esc(r.programa) : r.pedido ? ' · a pedido: ' + esc(r.pedido) : (r.familia ? ' · ' + esc(r.familia) : '')}</small></div>`;
+          ${r.bumper ? '' : barraCancion(r)}<small>${sig}${r.programa ? ' · 🎙 ' + esc(r.programa) : r.pedido ? ' · a pedido: ' + esc(r.pedido) : (r.familia ? ' · ' + esc(r.familia) : '')}</small>${medidorVoz(r.voz_saldo)}</div>`;
       }
       buscarEnlaceSpotify(c);
     } else {

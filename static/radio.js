@@ -155,6 +155,12 @@
     const i = lista.findIndex((r) => r.id === nueva.id);
     const antes = i >= 0 ? lista[i] : null;
     if (i >= 0) lista[i] = nueva; else lista.push(nueva);
+    // Alguien saltó la canción de RadioDoof desde otro lado (la PC, el teléfono, el chat): lo que este <audio> ya bajó es de la
+    // canción vieja, así que se vuelve a conectar para entrar a la nueva.
+    if (nueva.propia && nueva.salto && antes && nueva.salto !== antes.salto && nueva.salto !== R.saltoVisto) {
+      R.saltoVisto = nueva.salto;
+      if (R.sonando === nueva.id && !R.pausado) { R.reintentos = 0; cancelarReconexion(); conectarAudio(nueva, false); }
+    }
     if (nueva.consultando) R.consultando.add(nueva.id); else R.consultando.delete(nueva.id);
     const cambio = !antes || antes.estado !== nueva.estado || antes.titulo !== nueva.titulo;
     if (cambio) {
@@ -300,10 +306,13 @@
   async function saltarCancionDoof(boton) {
     if (boton) boton.disabled = true;
     try {
-      await app().api('/radiodoof/saltar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const resp = await app().api('/radiodoof/saltar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      // El evento de este mismo salto puede llegar antes que la respuesta: si ya reconectó por él, no se reconecta dos veces.
+      const yaReconecto = resp && resp.salto && R.saltoVisto === resp.salto;
+      if (resp && resp.salto) R.saltoVisto = resp.salto;
       // RadioDoof manda 30 s por adelantado: lo que ya bajó es de la canción vieja. Se vuelve a conectar para entrar a la nueva.
       const r = porId('radiodoof');
-      if (r && R.sonando === r.id && !R.pausado) { R.reintentos = 0; conectarAudio(r, false); }
+      if (r && R.sonando === r.id && !R.pausado && !yaReconecto) { R.reintentos = 0; conectarAudio(r, false); }
     }
     catch (e) { if (app().avisar) app().avisar('No pude saltar: ' + (e.message || 'sin conexión')); }
     finally { if (boton) boton.disabled = false; }

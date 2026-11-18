@@ -228,3 +228,19 @@ button.radio-fila-dial:hover { color: var(--acento-claro); }
 @media (prefers-reduced-motion: reduce) {
   #vista-radio *, #vista-radio *::before, #vista-radio *::after { animation: none !important; transition: none !important; }
 }
+
+/* La cabina de RadioDoof (18 nov 2026): la barra para pedirle cosas a la radio, debajo de lo que suena. */
+.radio-cabina { display: grid; gap: 10px; padding: 12px 16px 16px; border-top: 1px solid var(--borde-suave); }
+.radio-cabina[hidden] { display: none; }
+.radio-cabina-respuesta { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--acento-suave); color: var(--acento-texto); font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.radio-cabina-respuesta.mal { background: var(--superficie-2); color: var(--texto-2); }
+.radio-cabina-rapidos { display: flex; flex-wrap: wrap; gap: 6px; }
+.radio-cabina-rapidos button { height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--borde); background: var(--superficie-2); color: var(--texto-2); font-size: 13px; font-weight: 600; }
+.radio-cabina-rapidos button:active { transform: scale(.97); }
+.radio-cabina-rapidos button:disabled { opacity: .5; }
+.radio-cabina-form { display: flex; gap: 8px; }
+.radio-cabina-form input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--borde); background: var(--superficie-2); color: var(--texto); font-size: 16px; }
+.radio-cabina-form input:focus { outline: none; border-color: var(--acento); }
+.radio-cabina-form input:disabled { opacity: .6; }
+.radio-cabina-form button { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--acento); color: var(--sobre-acento); }
+.radio-cabina-form button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; }

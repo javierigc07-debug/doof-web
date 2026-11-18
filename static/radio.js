@@ -507,6 +507,8 @@
     const caja = $('#radio-sintonizada');
     if (!caja) return;
     const r = porId(R.sintonizada);
+    const cabina = $('#radio-cabina');
+    if (cabina) cabina.hidden = !(r && r.propia);       // fuera de la caja que se repinta: no se borra lo que Javier está escribiendo
     $('#radio-sintonizador').classList.toggle('tuya', !!(r && r.estado === 'match' && r.gusta));
     caja.classList.toggle('nuevo', !!r && R.nuevos.has(r.id));
     if (!r) {
@@ -733,6 +735,18 @@
           <div class="radio-aguja" aria-hidden="true"></div>
         </div>
         <div class="radio-sintonizada" id="radio-sintonizada"></div>
+        <div class="radio-cabina" id="radio-cabina" hidden>
+          <p class="radio-cabina-respuesta" id="radio-cabina-respuesta" aria-live="polite" hidden></p>
+          <div class="radio-cabina-rapidos">
+            <button type="button" data-cabina="top de ">Top de…</button>
+            <button type="button" data-cabina="pon ">Género…</button>
+            <button type="button" data-saltar-doof>Saltar</button>
+          </div>
+          <form class="radio-cabina-form" id="radio-cabina-form" autocomplete="off">
+            <input id="radio-cabina-texto" type="text" maxlength="300" placeholder="Pídele algo a Doof" enterkeyhint="send" spellcheck="false" aria-label="Pídele algo a la radio">
+            <button type="submit" aria-label="Mandar">${I.der}</button>
+          </form>
+        </div>
       </section>
       <div class="radio-tambien" id="radio-tambien"></div>
 
@@ -836,6 +850,38 @@
     buscar.addEventListener('input', () => { R.busqueda = buscar.value; pintarBusqueda(); });
     buscar.addEventListener('keydown', (e) => { if (e.key === 'Escape') { buscar.value = ''; R.busqueda = ''; pintarBusqueda(); } });
     $('#radio-limpiar').addEventListener('click', () => { buscar.value = ''; R.busqueda = ''; buscar.focus(); pintarBusqueda(); });
+
+    // La cabina (18 nov 2026): lo que Javier le escribe a RadioDoof va directo a la radio, no al chat general, donde un pedido mal
+    // entendido terminaba en el modelo prometiendo algo que no hacía.
+    const cabinaTexto = $('#radio-cabina-texto');
+    $('#radio-cabina-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const texto = cabinaTexto.value.trim();
+      const resp = $('#radio-cabina-respuesta');
+      if (!texto) { cabinaTexto.focus(); return; }
+      cabinaTexto.disabled = true;
+      resp.hidden = false;
+      resp.classList.remove('mal');
+      resp.textContent = 'Doof está en eso…';
+      try {
+        const d = await app().api('/radiodoof/cabina', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto }) }, 50000);
+        resp.textContent = d.texto || '';
+        resp.classList.toggle('mal', !d.ok);
+        if (d.ok) cabinaTexto.value = '';
+        cargar();
+      } catch (err) {
+        resp.textContent = 'No le llegó a Doof: ' + (err.message || 'sin conexión');
+        resp.classList.add('mal');
+      }
+      cabinaTexto.disabled = false;
+    });
+    $('#radio-cabina').addEventListener('click', (e) => {
+      const rapido = e.target.closest('[data-cabina]');
+      if (!rapido) return;
+      cabinaTexto.value = rapido.dataset.cabina;
+      cabinaTexto.focus();
+      cabinaTexto.setSelectionRange(cabinaTexto.value.length, cabinaTexto.value.length);
+    });
 
     $('#radio-tab-fav').addEventListener('click', () => { R.pestana = 'fav'; pintar(); });
     $('#radio-tab-mas').addEventListener('click', () => { R.pestana = 'mas'; pintar(); });

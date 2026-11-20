@@ -540,7 +540,9 @@
       const clase = r.estado === 'error_stream' ? 'mal' : 'sin';
       texto = `<div class="radio-sintonizada-texto ${clase}"><b>${principal}</b><small>${u || ''}${consultando ? ' · <em class="radio-comprobando">comprobando…</em>' : ''}</small></div>`;
     }
-    const saltarDoof = r.propia && c ? `<button class="radio-boton" type="button" data-saltar-doof>${I.der}Saltar</button>` : '';
+    const saltarDoof = (r.propia && c ? `<button class="radio-boton" type="button" data-saltar-doof>${I.der}Saltar</button>` : '')
+      // RadioDoof tiene su propia app desde el 20 nov 2026 (repo dj-doof): sigue sonando aunque Jarvis se reinicie.
+      + (r.propia ? `<a class="radio-boton" href="https://javierigc07-debug.github.io/radiodoof/" target="_blank" rel="noopener">${I.afuera}Abrir DJ Doof</a>` : '');
     caja.innerHTML = `${texto}<div class="radio-sintonizada-botones">${boton}${saltarDoof}<div class="radio-fila-mini">${c ? enlaceSpotify(c) : ''}${botonEstrella(r)}</div></div>`;
     moverBarras();
   }

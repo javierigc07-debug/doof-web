@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.24-1d0a6c5a35';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.24-50349a1caf';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -92,7 +92,7 @@
   const ESPERA_TARDIA_MINI_MS = 7 * 60 * 1000;
   const CLAVE_CHAT_MINI = 'mini_chat_actual';
   const MINI_CON_CONFIRMACION = new Set(['encender', 'modo_seguro', 'modo_normal']);
-  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', radio: 'Radio', presencia: 'Presencia', novedades: 'Novedades', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P' };
+  const TITULOS_DE_VISTA = { luz: 'Luz de la casa', pc: 'La PC', usdt: 'USDT', radio: 'Radio', presencia: 'Presencia', novedades: 'Novedades', agentes: 'Agentes', mini: 'Charlene', 'agente-p': 'Agente P', investigador: 'Investigador' };
 
   // Los botones que manda Telegram no tienen callback acá: se convierten al texto que el router
   // ya sabe interpretar. Es la misma tabla de static/mente.html, a propósito.
@@ -484,7 +484,7 @@
       } else if (novedad && /^[0-9a-f]{12}$/.test(novedad)) {
         history.replaceState(history.state, '', location.pathname);
         abrirNovedad(novedad);
-      } else if (['luz', 'usdt', 'radio', 'pc', 'agentes', 'novedades'].includes(params.get('seccion'))) {
+      } else if (['luz', 'usdt', 'radio', 'pc', 'agentes', 'novedades', 'investigador'].includes(params.get('seccion'))) {
         // El menú de la bandeja de la PC: "Luz" y "USDT" abren la ventana ya en esa sección.
         const seccion = params.get('seccion');
         history.replaceState(history.state, '', location.pathname);
@@ -951,6 +951,7 @@
     $('#vista-presencia').classList.toggle('activa', S.vista === 'presencia');
     $('#vista-novedades').classList.toggle('activa', S.vista === 'novedades');
     $('#vista-agentes').classList.toggle('activa', S.vista === 'agentes');
+    $('#vista-investigador')?.classList.toggle('activa', S.vista === 'investigador');
     $('#vista-mini').classList.toggle('activa', S.vista === 'mini');
     $('#vista-agente-p')?.classList.toggle('activa', S.vista === 'agente-p');
     // En el teléfono manda el ☰ de la izquierda (el gesto atrás de Android sigue volviendo a Inicio); la flecha queda para la pantalla ancha.
@@ -1052,7 +1053,7 @@
     setTimeout(() => $('#entrada').focus(), 30);
   }
 
-  const ATAJOS_SECCIONES = ['inicio', 'luz', 'pc', 'usdt', 'novedades', 'mini', 'agentes', 'agente-p', 'presencia'];
+  const ATAJOS_SECCIONES = ['inicio', 'luz', 'pc', 'usdt', 'novedades', 'mini', 'investigador', 'agentes', 'agente-p'];
   const escribiendoEn = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 
   // Ctrl+N y Ctrl+1..9 los reserva el navegador (ventana nueva, pestañas), por eso nueva conversación es Ctrl+Shift+O y las secciones van con Alt.
@@ -1255,6 +1256,7 @@
     else if (vista === 'presencia') pintarPresencia();
     else if (vista === 'novedades') pintarNovedades();
     else if (vista === 'agentes') pintarAgentes();
+    else if (vista === 'investigador') pintarInvestigador();
     else if (vista === 'mini') abrirMini();
     else if (vista === 'agente-p') abrirAgenteP();
     else { pintarPc(); pintarAccesoMini(); }
@@ -1308,6 +1310,238 @@
   function volver() {
     if (S.soloLectura) volverActiva(false);
     else irAInicio();
+  }
+
+  // ---------------------------------------------------------------- investigador
+  // El investigador.py corre como proceso aparte y escribe en investigador/investigador.db; el HUD lo lee en modo solo lectura y lo sirve aquí.
+  // La entrevista ocurre en el chat con Doof (responder_borrador -> investigar_producto): esta sección muestra el pulso del proceso, el estado y el PDF.
+  const REFRESCO_INVESTIGADOR_MS = 20000;
+  const Inv = { datos: null, falla: null, leida: null, abierto: null, detalle: null, detalleFalla: null };
+  const ESTADOS_INV = {
+    pendiente: ['En cola', 'alerta'],
+    buscando: ['Buscando', 'alerta'],
+    esperando: ['Esperando respuestas', 'alerta'],
+    cerrada: ['Terminada', 'bien'],
+    error: ['Con error', 'mal'],
+    cancelada: ['Cancelada', ''],
+  };
+
+  function estadoInvInfo(inv) {
+    return ESTADOS_INV[inv.estado] || [inv.etiqueta || inv.estado || '—', inv.activa ? 'alerta' : ''];
+  }
+
+  function textoLatidoInv(d) {
+    if (!d.vivo) return 'El proceso no está corriendo.';
+    if (d.latido) return 'Último latido: ' + fechaCorta(d.latido);
+    if (typeof d.segundos_latido === 'number') {
+      const seg = Math.max(0, Math.round(d.segundos_latido));
+      return seg < 60 ? `Último latido hace ${seg} s` : `Último latido hace ${Math.round(seg / 60)} min`;
+    }
+    return 'Proceso corriendo.';
+  }
+
+  async function irInvestigadorAChat(textoInicial) {
+    cerrarHojas();
+    if (S.soloLectura) await volverActiva(true);
+    else irAChat();
+    const entrada = $('#entrada');
+    if (textoInicial && entrada && !entrada.value.trim()) {
+      entrada.value = textoInicial;
+      ajustarEntrada();
+    }
+    if (entrada) setTimeout(() => entrada.focus(), 60);
+  }
+
+  async function cargarInvestigador() {
+    try {
+      Inv.datos = await api('/investigador');
+      Inv.falla = null;
+      Inv.leida = new Date();
+      if (Inv.abierto) {
+        try {
+          Inv.detalle = await api('/investigador/' + encodeURIComponent(Inv.abierto));
+          Inv.detalleFalla = null;
+        } catch (e) {
+          if (e.status === 401) return;
+          Inv.detalleFalla = e;
+        }
+      }
+    } catch (e) {
+      if (e.status === 401) return;
+      Inv.datos = null;
+      Inv.falla = e;
+    }
+    if (S.vista === 'investigador') pintarInvestigador();
+  }
+
+  function tarjetaInvestigacion(inv) {
+    const activa = !!inv.activa;
+    const card = elemento('button', 'inv-tarjeta' + (activa ? ' inv-activa' : ''));
+    card.type = 'button';
+
+    const cab = elemento('div', 'inv-cab');
+    const tit = elemento('strong', 'inv-producto', inv.producto || '(sin nombre)');
+    const [textoEst, claseEst] = estadoInvInfo(inv);
+    const badge = elemento('span', 'inv-badge' + (claseEst ? ' inv-badge-' + claseEst : ''), textoEst);
+    cab.append(tit, badge);
+    card.append(cab);
+
+    if (inv.pedido?.fuentes?.length) {
+      card.append(elemento('p', 'inv-fuentes', 'Fuentes: ' + inv.pedido.fuentes.join(', ')));
+    }
+
+    const pie = elemento('div', 'inv-pie');
+    const meta = [];
+    if (inv.creada_en) meta.push(fechaCorta(inv.creada_en));
+    if (inv.tiene_pdf) meta.push('PDF listo');
+    pie.append(elemento('span', 'casa-nota', meta.join(' · ')));
+    if (activa) pie.append(elemento('span', 'inv-pulso'));
+    card.append(pie);
+
+    card.addEventListener('click', () => {
+      Inv.abierto = inv.id;
+      Inv.detalle = null;
+      Inv.detalleFalla = null;
+      cargarInvestigadorDetalle(inv.id);
+    });
+    return card;
+  }
+
+  async function cargarInvestigadorDetalle(id) {
+    pintarInvestigador();
+    try {
+      const resp = await api('/investigador/' + encodeURIComponent(id));
+      if (Inv.abierto === id) { Inv.detalle = resp; Inv.detalleFalla = null; }
+    } catch (e) {
+      if (e.status === 401) return;
+      if (Inv.abierto === id) { Inv.detalle = null; Inv.detalleFalla = e; }
+    }
+    if (S.vista === 'investigador') pintarInvestigador();
+  }
+
+  function resumenFuentesInv(datos) {
+    if (!datos) return [];
+    const fuentes = [
+      ['MercadoLibre', datos.mercadolibre],
+      ['Marketplace', datos.marketplace],
+      ['Instagram', datos.instagram],
+      ['Tiendas', datos.tiendas],
+      ['Google Maps', datos.mapas],
+      ['Preguntas', datos.preguntas],
+    ];
+    return fuentes
+      .filter(([, v]) => Array.isArray(v) && v.length > 0)
+      .map(([nombre, v]) => [nombre, String(v.length)]);
+  }
+
+  function pintarDetalleInvestigacion(caja) {
+    caja.appendChild(botonCasa('‹ Todas las investigaciones', '', () => {
+      Inv.abierto = null;
+      Inv.detalle = null;
+      Inv.detalleFalla = null;
+      pintarInvestigador();
+    }));
+
+    if (Inv.detalleFalla) {
+      caja.appendChild(encabezadoCasa('mal', 'No pude cargar esta investigación', textoDeFalla(Inv.detalleFalla)));
+      return;
+    }
+    const d = Inv.detalle?.investigacion || (Inv.detalle?.id ? Inv.detalle : null);
+    if (!d) {
+      caja.appendChild(encabezadoCasa('', 'Cargando…'));
+      return;
+    }
+
+    const [textoEst, claseEst] = estadoInvInfo(d);
+    caja.appendChild(encabezadoCasa(claseEst, d.producto || '(sin nombre)', d.etiqueta || textoEst));
+
+    if (d.error) caja.appendChild(elemento('p', 'casa-nota usdt-error', 'Error: ' + d.error));
+
+    if (d.pedido) {
+      const filasPedido = [];
+      if (d.pedido.fuentes?.length) filasPedido.push(['Fuentes', d.pedido.fuentes.join(', ')]);
+      if (d.pedido.zona) filasPedido.push(['Zona', d.pedido.zona]);
+      if (d.pedido.modo) filasPedido.push(['Modo', d.pedido.modo]);
+      if (filasPedido.length) caja.appendChild(lecturas(filasPedido));
+      if (d.pedido.ficha) caja.appendChild(elemento('p', 'inv-ficha', d.pedido.ficha));
+    }
+
+    const filasResultados = resumenFuentesInv(d.datos);
+    if (filasResultados.length) {
+      caja.appendChild(elemento('h3', 'casa-subtitulo', 'Hallazgos por fuente'));
+      caja.appendChild(lecturas(filasResultados));
+    }
+
+    if (d.datos?.informe) {
+      caja.appendChild(elemento('h3', 'casa-subtitulo', 'Conclusión'));
+      const inf = elemento('div', 'inv-informe');
+      inf.append(renderMarkdown(d.datos.informe));
+      caja.appendChild(inf);
+    }
+
+    if (d.acciones?.length) {
+      caja.appendChild(elemento('h3', 'casa-subtitulo', 'Acciones de seguimiento'));
+      const lista = elemento('ul', 'inv-acciones');
+      for (const ac of d.acciones) {
+        const desc = ac.datos?.titulo || ac.datos?.texto || ac.datos?.tipo || 'Acción';
+        const estadoAc = ac.estado ? ` (${ac.estado})` : '';
+        lista.appendChild(elemento('li', 'inv-accion', desc + estadoAc));
+      }
+      caja.appendChild(lista);
+    }
+
+    if (d.tiene_pdf) {
+      const pie = elemento('div', 'inv-acciones-pie');
+      const urlPdf = (S.base || '') + '/api/investigador/' + encodeURIComponent(d.id) + '/pdf';
+      pie.appendChild(botonCasa('Ver informe PDF', 'principal', () => verPdf({
+        url: urlPdf,
+        titulo: d.producto || 'Investigación',
+        nombre: `investigacion_${d.id}.pdf`,
+      })));
+      caja.appendChild(pie);
+    }
+
+    const fechas = [];
+    if (d.creada_en) fechas.push('Iniciada: ' + fechaCorta(d.creada_en));
+    if (d.actualizada_en) fechas.push('Actualizada: ' + fechaCorta(d.actualizada_en));
+    if (fechas.length) caja.appendChild(elemento('p', 'casa-nota', fechas.join(' · ')));
+  }
+
+  function pintarInvestigador() {
+    const caja = $('#investigador-contenido');
+    caja.replaceChildren();
+
+    if (Inv.abierto) {
+      pintarDetalleInvestigacion(caja);
+      return;
+    }
+
+    if (Inv.datos) {
+      const vivo = Inv.datos.vivo;
+      caja.appendChild(encabezadoCasa(vivo ? 'bien' : '', vivo ? 'Investigador activo' : 'Investigador inactivo', textoLatidoInv(Inv.datos)));
+    } else if (Inv.falla) {
+      caja.appendChild(encabezadoCasa('mal', 'No llego al investigador', textoDeFalla(Inv.falla)));
+    } else {
+      caja.appendChild(encabezadoCasa('', 'Consultando…'));
+    }
+
+    const cabAcciones = elemento('div', 'inv-acciones-cab');
+    if (Inv.datos?.borrador) {
+      cabAcciones.appendChild(botonCasa('Hay una entrevista en curso — abre el chat con Doof', 'alerta', () => irInvestigadorAChat()));
+    }
+    cabAcciones.appendChild(botonCasa('Nueva investigación', '', () => irInvestigadorAChat('Averíguame un producto')));
+    caja.appendChild(cabAcciones);
+
+    if (Inv.datos?.investigaciones?.length) {
+      caja.appendChild(elemento('h3', 'casa-subtitulo', 'Investigaciones'));
+      const lista = elemento('div', 'inv-lista');
+      for (const inv of Inv.datos.investigaciones) lista.appendChild(tarjetaInvestigacion(inv));
+      caja.appendChild(lista);
+    } else if (Inv.datos) {
+      caja.appendChild(elemento('p', 'casa-nota', 'Todavía no hay investigaciones. Pídeselo a Doof en el chat.'));
+    }
+
+    if (Inv.leida) caja.appendChild(elemento('p', 'casa-nota', 'Leído a las ' + hora(Inv.leida) + '.'));
   }
 
   // ---------------------------------------------------------------- agentes
@@ -1859,10 +2093,10 @@
   async function refrescarSeccion() {
     const turno = ++S.turnoSeccion;
     const vista = S.vista;
-    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes' && vista !== 'usdt' && vista !== 'novedades' && vista !== 'presencia') return;
-    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'presencia' ? cargarPresencia() : vista === 'agentes' ? cargarAgentes() : vista === 'usdt' ? cargarUsdt() : vista === 'novedades' ? cargarNoticias() : cargarPc());
+    if (vista !== 'luz' && vista !== 'pc' && vista !== 'agentes' && vista !== 'usdt' && vista !== 'novedades' && vista !== 'presencia' && vista !== 'investigador') return;
+    if (!document.hidden) await (vista === 'luz' ? cargarLuz() : vista === 'presencia' ? cargarPresencia() : vista === 'agentes' ? cargarAgentes() : vista === 'usdt' ? cargarUsdt() : vista === 'novedades' ? cargarNoticias() : vista === 'investigador' ? cargarInvestigador() : cargarPc());
     if (turno !== S.turnoSeccion || S.vista !== vista) return;
-    await pausa(vista === 'presencia' ? 5000 : vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : vista === 'novedades' ? REFRESCO_NOVEDADES_MS : REFRESCO_PC_MS);
+    await pausa(vista === 'presencia' ? 5000 : vista === 'luz' ? REFRESCO_LUZ_MS : vista === 'agentes' ? REFRESCO_AGENTES_MS : vista === 'usdt' ? REFRESCO_USDT_MS : vista === 'novedades' ? REFRESCO_NOVEDADES_MS : vista === 'investigador' ? REFRESCO_INVESTIGADOR_MS : REFRESCO_PC_MS);
     if (turno === S.turnoSeccion) refrescarSeccion();
   }
 

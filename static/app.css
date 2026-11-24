@@ -870,8 +870,8 @@ body.con-aprobacion .aviso { top: calc(64px + env(safe-area-inset-top)); bottom:
 .menu-lista .fila.actual .fila-icono { color: var(--acento-claro); }
 
 /* ---------------------------------------------------------------- secciones de la casa */
-body[data-vista="luz"] #barra, body[data-vista="pc"] #barra, body[data-vista="agentes"] #barra, body[data-vista="usdt"] #barra, body[data-vista="novedades"] #barra { border-bottom-color: var(--borde-suave); }
-body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data-vista="agentes"] #compositor, body[data-vista="usdt"] #compositor, body[data-vista="novedades"] #compositor { display: none; }
+body[data-vista="luz"] #barra, body[data-vista="pc"] #barra, body[data-vista="agentes"] #barra, body[data-vista="usdt"] #barra, body[data-vista="novedades"] #barra, body[data-vista="investigador"] #barra { border-bottom-color: var(--borde-suave); }
+body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data-vista="agentes"] #compositor, body[data-vista="usdt"] #compositor, body[data-vista="novedades"] #compositor, body[data-vista="investigador"] #compositor { display: none; }
 .seccion-casa { padding: 18px 18px calc(28px + env(safe-area-inset-bottom)); }
 
 .casa { display: grid; grid-template-columns: 12px 1fr; column-gap: 12px; align-items: baseline; }
@@ -1004,6 +1004,33 @@ body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data
 .md-codigo { margin: 10px 0 0; padding: 10px 12px; overflow-x: auto; font: 12.5px/1.45 ui-monospace, 'Cascadia Code', Consolas, monospace; background: rgba(127,127,127,.18); border-radius: var(--r-s); white-space: pre; }
 .agente-mas { margin-top: 14px; font-size: 13.5px; }
 .agente-mas summary { cursor: pointer; color: var(--muted); }
+
+/* ---- sección Investigador ---- */
+.accion-casa.principal { color: var(--sobre-acento); background: var(--acento); border-color: var(--acento); }
+.accion-casa.alerta { color: var(--ambar); border-color: rgba(224, 178, 106, .5); }
+.inv-acciones-cab { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.inv-lista { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.inv-tarjeta { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 12px 14px; text-align: left; font: inherit; color: inherit;
+  background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--r-m); cursor: pointer; transition: background .15s, border-color .15s; }
+.inv-tarjeta:active { background: var(--superficie-2); }
+.inv-tarjeta.inv-activa { border-color: rgba(224, 178, 106, .5); }
+.inv-cab { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.inv-producto { font-size: 15px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.inv-badge { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--superficie-2); color: var(--texto-2); white-space: nowrap; }
+.inv-badge-bien { color: var(--verde); background: rgba(95, 208, 160, .14); }
+.inv-badge-alerta { color: var(--ambar); background: rgba(224, 178, 106, .15); }
+.inv-badge-mal { color: var(--rojo-claro); background: rgba(232, 120, 138, .15); }
+.inv-fuentes { margin: 0; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-pie { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.inv-pie .casa-nota { margin: 0; }
+.inv-pulso { width: 8px; height: 8px; border-radius: 50%; background: var(--ambar); animation: agente-pulso 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .inv-pulso { animation: none; } }
+.inv-ficha { margin: 14px 0 0; padding: 12px 14px; font-size: 13.5px; line-height: 1.45; color: var(--texto-2);
+  background: var(--superficie); border: 1px solid var(--borde-suave); border-radius: var(--r-s); white-space: pre-wrap; overflow-wrap: anywhere; }
+.inv-informe { margin: 10px 0 0; padding: 12px 14px; font-size: 14px; line-height: 1.5; background: var(--superficie); border-radius: var(--r-s); overflow-wrap: anywhere; }
+.inv-acciones { margin: 8px 0 0; padding-left: 18px; font-size: 13.5px; line-height: 1.45; color: var(--texto-2); }
+.inv-accion { margin: 4px 0; }
+.inv-acciones-pie { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
 
 /* ---------------------------------------------------------------- mini Doof */
 /* El ámbar es lo que lo separa del Doof grande, y solo se usa en lo que importa: su ojo, la pestaña elegida, encender y enviar. */

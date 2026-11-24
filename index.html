@@ -16,8 +16,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="static/iconos/ojo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="static/iconos/icono-192.png">
-  <link rel="stylesheet" href="static/app.css?v=1d0a6c5a35">
-  <link rel="stylesheet" href="static/radio.css?v=1d0a6c5a35">
+  <link rel="stylesheet" href="static/app.css?v=50349a1caf">
+  <link rel="stylesheet" href="static/radio.css?v=50349a1caf">
 </head>
 <body>
 
@@ -68,13 +68,16 @@
       <button class="lateral-item" type="button" data-destino="mini" data-nombre="Charlene · Alt 6">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="7" width="14" height="12" rx="2"/><path d="M9 7V4M15 7V4M9 19v2M15 19v2M3 11h2M3 15h2M19 11h2M19 15h2"/></svg><span>Charlene</span>
       </button>
-      <button class="lateral-item" type="button" data-destino="agentes" data-nombre="Agentes · Alt 7">
+      <button class="lateral-item" type="button" data-destino="investigador" data-nombre="Investigador · Alt 7">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/><path d="M11 8v6M8 11h6"/></svg><span>Investigador</span>
+      </button>
+      <button class="lateral-item" type="button" data-destino="agentes" data-nombre="Agentes · Alt 8">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span>Agentes</span>
       </button>
-      <button class="lateral-item lateral-agente-p" type="button" data-destino="agente-p" data-nombre="Agente P · Alt 8">
+      <button class="lateral-item lateral-agente-p" type="button" data-destino="agente-p" data-nombre="Agente P · Alt 9">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a5 5 0 0 1 5 5v3a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5zM4 14h16v3a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-3z"/></svg><span>Agente P</span>
       </button>
-      <button class="lateral-item" type="button" data-destino="presencia" data-nombre="Presencia · Alt 9">
+      <button class="lateral-item" type="button" data-destino="presencia" data-nombre="Presencia">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0114 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Presencia</span>
         <em class="lateral-exp" aria-label="experimental">exp.</em>
       </button>
@@ -192,6 +195,7 @@
         <button data-texto="Arma mi semana">Mi semana</button>
         <button data-texto="¿Cuál es la tasa BCV?">Tasa BCV</button>
         <button data-texto="¿Cómo está el saldo de la IA?">Saldo IA</button>
+        <button data-texto="Averíguame un producto">Investigador</button>
       </div>
 
       <button id="continuar" class="continuar" hidden>
@@ -422,6 +426,10 @@
           <span class="fila-icono"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg></span>
           <span class="fila-texto"><b>Agentes</b><small>Sesiones de Claude Code</small></span>
         </button>
+        <button class="fila" data-destino="investigador">
+          <span class="fila-icono"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/><path d="M11 8v6M8 11h6"/></svg></span>
+          <span class="fila-texto"><b>Investigador</b><small>Buscar precios y vendedores</small></span>
+        </button>
         <button class="fila fila-agente-p" data-destino="agente-p">
           <span class="fila-icono"><svg viewBox="0 0 24 24"><path d="M12 2a5 5 0 0 1 5 5v3a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5zM4 14h16v3a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-3z"/></svg></span>
           <span class="fila-texto"><b>Agente P</b><small>Inteligencia OSINT y expedientes</small></span>
@@ -562,8 +570,8 @@
 <input type="file" id="archivo-galeria" accept="image/*" hidden>
 <input type="file" id="archivo-general" hidden>
 
-<script src="static/mini_doof.js?v=1d0a6c5a35" defer></script>
-<script src="static/app.js?v=1d0a6c5a35" defer></script>
-<script src="static/radio.js?v=1d0a6c5a35" defer></script>
+<script src="static/mini_doof.js?v=50349a1caf" defer></script>
+<script src="static/app.js?v=50349a1caf" defer></script>
+<script src="static/radio.js?v=50349a1caf" defer></script>
 </body>
 </html>

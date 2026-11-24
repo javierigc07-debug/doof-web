@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.20-c7cb509dc5';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.24-1d0a6c5a35';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -83,6 +83,7 @@
   const TIPO_PAGO = 'pago_movil';
   const TIPO_LLAVE = 'mini_doof_llave';
   const TIPO_RESPONDER = 'responder_agente';
+  const TIPO_CONTACTAR = 'contactar_agente';     // abre un agente de Antigravity en la PC (agentes_terminal.pedir_contacto)
   const MAX_RESPUESTA_AGENTE = 2000;      // el bot rechaza más que esto
   const MAX_TEXTO_MINI = 200;     // la Pi recorta lo que pase de ahí sin avisar
   const MAX_MENSAJES_MINI = 200;      // por chat, guardado en el teléfono
@@ -553,6 +554,10 @@
         await cargarAprobaciones();
         await cargarAgentes();
         return;
+      } else if (aprobacion.tipo === TIPO_CONTACTAR) {
+        avisar(`Listo: el agente te espera en la PC, en «${resultado.proyecto || 'el proyecto'}».`);
+        await cargarAprobaciones();
+        return;
       } else if (aprobacion.tipo === TIPO_LLAVE) {
         await window.MiniDoof.instalar(resultado.clave);
         await cargarAprobaciones();
@@ -575,7 +580,7 @@
   async function cancelarAprobacion(aprobacion) {
     try {
       await postJson(`/aprobaciones/${aprobacion.id}/cancelar`);
-      const avisos = { [TIPO_APAGAR]: 'Cancelado: la PC sigue prendida.', [TIPO_PAGO]: 'Cancelado: no se movió nada.', [TIPO_LLAVE]: 'Cancelado: la llave no salió de la PC.', [TIPO_RESPONDER]: 'Cancelado: no le dije nada al agente.' };
+      const avisos = { [TIPO_APAGAR]: 'Cancelado: la PC sigue prendida.', [TIPO_PAGO]: 'Cancelado: no se movió nada.', [TIPO_LLAVE]: 'Cancelado: la llave no salió de la PC.', [TIPO_RESPONDER]: 'Cancelado: no le dije nada al agente.', [TIPO_CONTACTAR]: 'Cancelado: no abrí ningún agente.' };
       avisar(avisos[aprobacion.tipo] || 'Cancelado: no envié nada.');
     } catch (e) {
       avisar('No pude cancelarlo: ' + e.message);
@@ -749,6 +754,23 @@
     return caja;
   }
 
+  function tarjetaContactoAgente(aprobacion) {
+    const r = aprobacion.resumen || {};
+    const caja = document.createElement('section');
+    caja.className = 'aprobacion';
+    const titulo = document.createElement('h3');
+    titulo.textContent = `Abrir un agente de ${r.agente || 'Antigravity'} en «${r.proyecto || 'el proyecto'}»`;
+    const texto = document.createElement('p');
+    texto.className = 'cuerpo agente-texto-a-enviar';
+    texto.textContent = r.texto || '';
+    const nota = document.createElement('p');
+    nota.className = 'cuerpo';
+    nota.textContent = 'Se abre una ventana en la PC con el agente ya trabajando en esto. Edita y corre comandos seguros por su cuenta; lo demás te lo pregunta en esa ventana.';
+    caja.append(titulo, texto, nota);
+    ponerAccionesDeHuella(caja, aprobacion, 'Abrir con huella', 'Para abrir un agente desde la app, primero activa la huella en este teléfono.');
+    return caja;
+  }
+
   function ponerAccionesDeHuella(caja, aprobacion, textoPrincipal, textoSinHuella) {
     const acciones = document.createElement('div');
     acciones.className = 'acciones';
@@ -778,7 +800,7 @@
     caja.append(acciones);
   }
 
-  const esDeOtraSeccion = (a) => a.tipo === TIPO_APAGAR || a.tipo === TIPO_LLAVE || a.tipo === TIPO_RESPONDER;
+  const esDeOtraSeccion = (a) => a.tipo === TIPO_APAGAR || a.tipo === TIPO_LLAVE || a.tipo === TIPO_RESPONDER || a.tipo === TIPO_CONTACTAR;
 
   // La de apagar vive en la sección PC: en el chat, un botón de apagar junto a lo que se escribe sería un mal toque esperando a pasar.
   function pintarAprobaciones() {
@@ -790,7 +812,9 @@
     cajaPc.textContent = '';
     $('#agente-aprobacion').textContent = '';
     S.aprobaciones.filter((a) => a.tipo === TIPO_RESPONDER).slice(0, 1).forEach((a) => $('#agente-aprobacion').appendChild(tarjetaRespuestaAgente(a)));
+    S.aprobaciones.filter((a) => a.tipo === TIPO_CONTACTAR).slice(0, 1).forEach((a) => $('#agente-aprobacion').appendChild(tarjetaContactoAgente(a)));
     pintarResponder();
+    pintarContactar();
     delChat.forEach((a) => caja.appendChild(a.tipo === TIPO_PAGO ? tarjetaPago(a) : tarjetaAprobacion(a)));
     S.aprobaciones.filter((a) => a.tipo === TIPO_APAGAR).slice(0, 1).forEach((a) => cajaPc.appendChild(tarjetaApagado(a)));
     S.aprobaciones.filter((a) => a.tipo === TIPO_LLAVE).slice(0, 1).forEach((a) => cajaPc.appendChild(tarjetaLlave(a)));
@@ -1412,6 +1436,65 @@
     boton.disabled = false;
   }
 
+  // «Contactar agente»: Javier elige un repo de la lista fija que manda Doof y escribe la mejora o el bug; tras la huella se abre en la PC una consola
+  // con la CLI de Antigravity trabajando en eso. Igual que el campo de responder, vive fuera de #agentes-contenido y se crea una sola vez.
+  function pintarContactar() {
+    const caja = $('#agente-contactar');
+    if (!caja) return;
+    const esperandoHuella = S.aprobaciones.some((a) => a.tipo === TIPO_CONTACTAR);
+    caja.hidden = S.vista !== 'agentes' || !!A.abierto || !A.lista || esperandoHuella;
+    if (caja.hidden) return;
+    if (!A.contacto) {
+      const c = A.contacto = {};
+      c.abrir = botonDe('Contactar agente', () => { A.contactoAbierto = !A.contactoAbierto; pintarContactar(); if (A.contactoAbierto) c.campo.focus(); }, true);
+      c.form = elemento('div', 'agente-contactar-form');
+      c.proyecto = elemento('select', 'agente-proyecto');
+      c.proyecto.setAttribute('aria-label', 'Proyecto');
+      c.campo = elemento('textarea', 'agente-campo');
+      c.campo.rows = 4;
+      c.campo.maxLength = MAX_RESPUESTA_AGENTE;
+      c.campo.setAttribute('aria-label', 'Qué quieres que haga el agente');
+      c.campo.placeholder = 'Qué mejora quieres o qué bug arreglar…';
+      c.boton = botonDe('Abrir con huella', pedirContactoAgente, true);
+      c.nota = elemento('p', 'casa-nota');
+      c.form.append(c.proyecto, c.campo, c.boton, c.nota);
+      caja.append(c.abrir, c.form);
+    }
+    const c = A.contacto;
+    const proyectos = A.lista.proyectos || [];
+    const clave = proyectos.map((p) => p.id).join('|');
+    if (c.claveProyectos !== clave) {      // se rehace solo si cambió la lista: rehacerla cada 8 s perdería lo elegido
+      const elegido = c.proyecto.value;
+      c.proyecto.replaceChildren(...proyectos.map((p) => { const o = elemento('option', '', p.nombre); o.value = p.id; return o; }));
+      if (proyectos.some((p) => p.id === elegido)) c.proyecto.value = elegido;
+      c.claveProyectos = clave;
+    }
+    const puede = !!A.lista.puede_contactar && proyectos.length > 0;
+    c.abrir.textContent = A.contactoAbierto ? 'Cerrar' : 'Contactar agente';
+    c.abrir.className = A.contactoAbierto ? '' : 'principal';
+    c.form.hidden = !A.contactoAbierto;
+    c.proyecto.disabled = c.campo.disabled = c.boton.disabled = !puede;
+    c.nota.textContent = puede
+      ? 'Se abre una ventana de Antigravity en la PC con el agente ya trabajando en esto. Te pide la huella antes.'
+      : 'No encuentro la CLI de Antigravity (agy) en la PC.';
+  }
+
+  async function pedirContactoAgente(boton) {
+    const c = A.contacto;
+    const texto = c.campo.value.trim();
+    if (!texto) { avisar('Escribe qué quieres que haga.'); return; }
+    boton.disabled = true;
+    try {
+      await postJson('/agentes/contactar', { proyecto: c.proyecto.value, texto });
+      c.campo.value = '';
+      A.contactoAbierto = false;
+      await cargarAprobaciones();      // deja la tarjeta con la huella y esconde el formulario
+    } catch (e) {
+      avisar(e.message || 'No pude preparar el pedido.');
+    }
+    boton.disabled = false;
+  }
+
   function filaAgente(a) {
     const b = elemento('button', 'agente-fila' + (a.estado === 'trabajando' ? ' trabajando' : ''));
     b.type = 'button';
@@ -1472,6 +1555,7 @@
     }
     if (A.leida && !A.abierto) caja.appendChild(elemento('p', 'casa-nota', `Leído a las ${hora(A.leida)}. Toca uno para ver lo que dejó y responderle.`));
     pintarResponder();
+    pintarContactar();
   }
 
   // ---------------------------------------------------------------- USDT

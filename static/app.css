@@ -976,6 +976,18 @@ body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data
 .agente-responder { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
 .agente-responder[hidden] { display: none; }
 #agente-aprobacion:not(:empty) { margin-top: 18px; }
+.agente-contactar { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.agente-contactar[hidden], .agente-contactar-form[hidden] { display: none; }
+.agente-contactar-form { display: flex; flex-direction: column; gap: 10px; }
+/* botonDe() solo pone la clase .principal: fuera de una .aprobacion no tenía forma de botón (el de Responder tampoco). */
+.agente-responder button.principal, .agente-contactar button.principal { height: 48px; border-radius: var(--r-m); background: var(--acento);
+  color: var(--sobre-acento); font-size: 15px; font-weight: 650; transition: transform .12s, opacity .15s; }
+.agente-responder button.principal:active, .agente-contactar button.principal:active { transform: scale(.985); }
+.agente-responder button.principal:disabled, .agente-contactar button.principal:disabled { opacity: .55; }
+.agente-contactar > button:not(.principal) { height: 44px; border-radius: var(--r-m); background: var(--superficie); border: 1px solid var(--borde);
+  font-size: 15px; }
+.agente-proyecto { width: 100%; padding: 11px 12px; font: inherit; font-size: 15px; color: inherit; background: var(--superficie);
+  border: 1px solid var(--borde); border-radius: var(--r-m); }
 .agente-campo { width: 100%; min-height: 84px; resize: vertical; padding: 12px 14px; font: inherit; font-size: 15px; line-height: 1.45; color: inherit;
   background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--r-m); }
 .agente-campo:disabled { opacity: .55; }

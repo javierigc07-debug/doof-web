@@ -3,17 +3,17 @@
    servir de una copia vieja, y por ella viaja el token, y la app ya sabe mostrar "PC sin conexión" sola.
    El bloque de push queda listo para la fase 3 (avisos con la app cerrada). */
 
-const VERSION = 'doofapp-a6b1dc9fe2';
+const VERSION = 'doofapp-6a3ae13e63';
 // Con mala señal el HTML no debe esperar a que el fetch falle solo: pasado este tiempo se abre la copia guardada.
 const ESPERA_RED_NAVEGACION_MS = 2500;
 const CASCARON = [
   './',
   'manifest.webmanifest',
-  'static/app.css?v=a6b1dc9fe2',
-  'static/app.js?v=a6b1dc9fe2',
-  'static/mini_doof.js?v=a6b1dc9fe2',
-  'static/radio.js?v=a6b1dc9fe2',
-  'static/radio.css?v=a6b1dc9fe2',
+  'static/app.css?v=6a3ae13e63',
+  'static/app.js?v=6a3ae13e63',
+  'static/mini_doof.js?v=6a3ae13e63',
+  'static/radio.js?v=6a3ae13e63',
+  'static/radio.css?v=6a3ae13e63',
   'static/iconos/ojo.svg',
   'static/iconos/icono-192.png',
   'static/iconos/icono-512.png',

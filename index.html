@@ -16,8 +16,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="static/iconos/ojo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="static/iconos/icono-192.png">
-  <link rel="stylesheet" href="static/app.css?v=a6b1dc9fe2">
-  <link rel="stylesheet" href="static/radio.css?v=a6b1dc9fe2">
+  <link rel="stylesheet" href="static/app.css?v=6a3ae13e63">
+  <link rel="stylesheet" href="static/radio.css?v=6a3ae13e63">
 </head>
 <body>
 
@@ -267,7 +267,19 @@
       <div id="mini-mensajes" class="mensajes" aria-live="polite"></div>
       <div class="mini-panel">
         <div id="mini-acciones"></div>
+        <div id="mini-modo-barra" class="mini-modo-barra" hidden>
+          <button type="button" id="mini-modo-pi" class="mini-modo-btn" aria-pressed="true">Raspberry</button>
+          <button type="button" id="mini-modo-xbox" class="mini-modo-btn" aria-pressed="false">Xbox (xllama)</button>
+        </div>
+        <div id="mini-pendiente" class="mini-pendiente" hidden>
+          <span id="mini-pendiente-nombre"></span>
+          <button type="button" id="mini-pendiente-quitar" class="icono chico" aria-label="Quitar PDF">✕</button>
+        </div>
         <form id="mini-form" class="caja-texto">
+          <button id="mini-adjuntar" class="icono-caja" type="button" aria-label="Adjuntar PDF para Xbox" hidden>
+            <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <input id="mini-archivo" type="file" accept=".pdf,application/pdf" hidden>
           <input id="mini-entrada" type="text" placeholder="Escríbele a Charlene…" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" spellcheck="false" aria-label="Escríbele a Charlene">
           <button id="mini-enviar" class="enviar" type="submit" aria-label="Enviar" disabled>
             <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -574,8 +586,8 @@
 <input type="file" id="archivo-galeria" accept="image/*" hidden>
 <input type="file" id="archivo-general" hidden>
 
-<script src="static/mini_doof.js?v=a6b1dc9fe2" defer></script>
-<script src="static/app.js?v=a6b1dc9fe2" defer></script>
-<script src="static/radio.js?v=a6b1dc9fe2" defer></script>
+<script src="static/mini_doof.js?v=6a3ae13e63" defer></script>
+<script src="static/app.js?v=6a3ae13e63" defer></script>
+<script src="static/radio.js?v=6a3ae13e63" defer></script>
 </body>
 </html>

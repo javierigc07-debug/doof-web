@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-7e1f36563d';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-cea3be92eb';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -2397,7 +2397,14 @@
   // `chat`: el que está en pantalla (null = uno nuevo que nace con el primer mensaje, como los de Doof). `enVuelo`: lo que espera esta página; lo
   // demás que figure esperando quedó de una página que el sistema cerró, y solo puede llegar como respuesta tardía.
   const CLAVE_MODO_MINI = 'mini_doof_modo';
-  const mini = { chat: null, chats: [], enVuelo: new Set(), menu: menuGuardadoMini(), menuAlDia: false, grupo: 'PC', confirmando: null, conexion: '', sinPc: false, relojAbrir: null, modo: leerGuardado(CLAVE_MODO_MINI) === 'xbox' ? 'xbox' : 'pi', pdf: null };
+  const CLAVE_MODELO_XBOX = 'mini_doof_modelo_xbox';
+  const MODELO_XBOX_DEFECTO = 'qwen3-1.7b';
+  const MODELOS_XBOX_VALIDOS = new Set(['qwen3-1.7b', 'qwen25-coder-1.5b', 'llama32-3b', 'lfm25-1.2b-instruct', 'lfm2-2.6b']);
+  const modeloXboxGuardado = () => {
+    const g = leerGuardado(CLAVE_MODELO_XBOX);
+    return MODELOS_XBOX_VALIDOS.has(g) ? g : MODELO_XBOX_DEFECTO;
+  };
+  const mini = { chat: null, chats: [], enVuelo: new Set(), menu: menuGuardadoMini(), menuAlDia: false, grupo: 'PC', confirmando: null, conexion: '', sinPc: false, relojAbrir: null, modo: leerGuardado(CLAVE_MODO_MINI) === 'xbox' ? 'xbox' : 'pi', modeloXbox: modeloXboxGuardado(), pdf: null };
   const MINI_SE_PERDIO = 'Esta respuesta no llegó: la app se cerró mientras la Raspberry contestaba y ya no la guarda. Pregúntamelo otra vez.';
   const miniOcupado = () => !!mini.chat && mini.chat.mensajes.some((m) => m.esperando);
   const idAlAzar = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -2765,6 +2772,10 @@
     const xboxActivo = modoXboxMiniActivo();
     caja.textContent = '';
     if ($('#mini-modo-barra')) $('#mini-modo-barra').hidden = true;
+    if ($('#mini-modelo-barra')) {
+      $('#mini-modelo-barra').hidden = !xboxActivo;
+      if ($('#mini-modelo')) $('#mini-modelo').value = mini.modeloXbox;
+    }
     if ($('#mini-adjuntar')) $('#mini-adjuntar').hidden = !xboxDisponible;
     if ($('#mini-pendiente')) {
       $('#mini-pendiente').hidden = !mini.pdf;
@@ -2881,6 +2892,7 @@
         const final = await window.MiniDoof.pedir('xllama', {
           texto: promptFinal,
           chat: chat.id,
+          modelo: mini.modeloXbox,
           alEnviar: (n) => { respuesta.n = n; mini.enVuelo.add(n); guardarChatMini(chat); },
           alParcial: (m) => { respuesta.texto = m.texto || ''; if (mini.chat === chat) pintarMensajesMini(); },
         });
@@ -2892,9 +2904,10 @@
           const datos = new FormData();
           datos.append('archivo', archivo, archivo.name);
           if (texto) datos.append('prompt', texto);
+          if (mini.modeloXbox) datos.append('modelo', mini.modeloXbox);
           d = await api('/xllama', { method: 'POST', body: datos }, 185000);
         } else {
-          d = await api('/xllama', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: texto }) }, 185000);
+          d = await api('/xllama', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: texto, modelo: mini.modeloXbox }) }, 185000);
         }
         completarRespuestaMini(respuesta, d);
       }
@@ -3212,6 +3225,11 @@
     $('#mini-pendiente-quitar')?.addEventListener('click', () => {
       mini.pdf = null;
       pintarAccionesMini();
+    });
+    $('#mini-modelo')?.addEventListener('change', (e) => {
+      const elegido = e.target.value;
+      mini.modeloXbox = MODELOS_XBOX_VALIDOS.has(elegido) ? elegido : MODELO_XBOX_DEFECTO;
+      guardar(CLAVE_MODELO_XBOX, mini.modeloXbox);
     });
     $('#banda-mini').addEventListener('click', () => irASeccion('mini'));
     $('#btn-chats-mini').addEventListener('click', () => abrirHoja('hoja-historial-mini'));

@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.24-6a3ae13e63';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-f719e7fe5e';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -2679,7 +2679,11 @@
       guardar.download = 'charlene.png';
       cuerpo.append(img, guardar);
     }
-    cuerpo.append(document.createTextNode(m.texto || ''));
+    if (m.texto) cuerpo.append(renderMarkdown(m.texto));
+    if (m.meta) {
+      const meta = elemento('div', 'msg-meta-xbox', m.meta);
+      cuerpo.append(meta);
+    }
     d.append(o, cuerpo);
     return d;
   }
@@ -2807,7 +2811,8 @@
       const seg = typeof d.segundos === 'number' ? d.segundos.toFixed(1) + ' s · ' : '';
       const tok = (d.entrada || d.salida) ? `${d.entrada || 0}+${d.salida || 0} tok · ` : '';
       Object.assign(respuesta, {
-        texto: `${d.texto || '(respuesta vacía)'}\n\n[${d.modelo || 'xllama'} · ${seg}${tok}$0.0000]`,
+        texto: d.texto || '(respuesta vacía)',
+        meta: `${d.modelo || 'xllama'} · ${seg}${tok}$0.0000`,
         esperando: false,
       });
       delete respuesta.fallo;

@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-3720c6ac52';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-69eda3fde9';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -2556,7 +2556,8 @@
 
   function completarRespuestaMini(respuesta, final) {
     // La Pi le agrega a cada respuesta "💭 Charla libre: puedo inventar cosas...". Javier no la quiere en cada mensaje (6 nov 2026): el saludo ya lo dice una vez.
-    respuesta.texto = (final.texto || '').replace(/^\s*💭.*$/gmu, '').trim() || '(respuesta vacía)';
+    const textoLimpio = (final.texto || '').replace(/^\s*💭.*$/gmu, '').trim();
+    respuesta.texto = textoLimpio || (final.fallo ? 'La Xbox no respondió.' : '(respuesta vacía)');
     if (final.imagen) respuesta.imagen = final.imagen;   // un dibujo de la Xbox (data URL ya armada en mini_doof.js)
     if (final.imagenIncompleta) respuesta.texto += '\n(El dibujo no llegó completo. Pídemelo otra vez.)';
     const meta = formatoMetaXbox(final);
@@ -2843,8 +2844,8 @@
     } finally {
       await doc.destroy().catch(() => {});
     }
-    let texto = partes.join('\n\n').trim();
-    if (!texto) throw new Error('No pude extraer texto legible de ese PDF.');
+    let texto = partes.join('\n\n').replace(/  +/g, ' ').trim();   // normaliza doble espacio de PDFs de Word
+    if (!texto) throw new Error('No pude extraer texto legible de ese PDF. Si es un scan o imagen, no puedo leerlo.');
     if (texto.length > maxChars) {
       texto = texto.slice(0, maxChars) + `\n[Nota: documento recortado a los primeros ${maxChars} caracteres]`;
     }

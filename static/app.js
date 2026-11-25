@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-f719e7fe5e';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-4c93ca561a';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -929,7 +929,20 @@
     pill.className = 'pastilla-estado ' + clase;
     pill.querySelector('span').textContent = texto;
 
-    $('#barra-sub').textContent = S.vista === 'mini' ? textoConexionMini() : S.soloLectura ? 'solo lectura' : texto;
+    const enMini = S.vista === 'mini';
+    const chipModo = $('#btn-modo-mini');
+    if (enMini && !pcCaida() && chipModo) {
+      const xboxActivo = modoXboxMiniActivo();
+      $('#barra-sub').hidden = true;
+      chipModo.hidden = false;
+      chipModo.classList.toggle('xbox', xboxActivo);
+      chipModo.textContent = xboxActivo ? 'Xbox (xllama) · ⇄ Pi' : `${textoConexionMini() || 'Raspberry'} · ⇄ Xbox`;
+      chipModo.setAttribute('aria-label', xboxActivo ? 'Modo Xbox. Toca para cambiar a Raspberry' : 'Modo Raspberry. Toca para cambiar a Xbox');
+    } else {
+      if (chipModo) chipModo.hidden = true;
+      $('#barra-sub').hidden = false;
+      $('#barra-sub').textContent = enMini ? textoConexionMini() : S.soloLectura ? 'solo lectura' : texto;
+    }
 
     const mostrar = (S.conectado === false || S.salud === false) && !S.soloLectura;
     $('#banda').hidden = !mostrar;
@@ -2694,8 +2707,16 @@
     if (window.MiniDoof.instalada()) caja.append(nodoMensajeMini({ rol: 'bot', texto: SALUDO_MINI }));
     else if (!pcCaida()) caja.append(nodoMensajeMini({ rol: 'bot', texto: 'Soy Charlene. La PC está en línea: puedes probar Xbox (xllama) directo con algoritmos o PDFs, o instalar la llave de la Raspberry para cuando la PC esté apagada.' }));
     else caja.append(nodoMensajeMini({ rol: 'bot', texto: 'Soy Charlene y vivo en la Raspberry, pero este teléfono todavía no tiene mi llave. Se instala con la PC encendida.' }));
-    (mini.chat ? mini.chat.mensajes : []).forEach((m) => caja.append(nodoMensajeMini(m)));
-    caja.scrollTop = caja.scrollHeight;
+    const mensajes = mini.chat ? mini.chat.mensajes : [];
+    mensajes.forEach((m) => caja.append(nodoMensajeMini(m)));
+    const ultimo = mensajes[mensajes.length - 1];
+    const nodo = caja.lastElementChild;
+    if (ultimo && ultimo.rol === 'bot' && !ultimo.esperando && nodo) {
+      // Quedar al inicio de la última respuesta (si es corta, el tope la deja abajo junto a la pregunta).
+      caja.scrollTop = Math.max(0, nodo.getBoundingClientRect().top - caja.getBoundingClientRect().top + caja.scrollTop - 14);
+    } else {
+      caja.scrollTop = caja.scrollHeight;
+    }
   }
 
   function idsDelGrupoMini(nombre) {
@@ -2726,11 +2747,7 @@
     const xboxDisponible = !pcCaida();
     const xboxActivo = modoXboxMiniActivo();
     caja.textContent = '';
-    if ($('#mini-modo-barra')) {
-      $('#mini-modo-barra').hidden = !xboxDisponible;
-      $('#mini-modo-pi').setAttribute('aria-pressed', String(!xboxActivo));
-      $('#mini-modo-xbox').setAttribute('aria-pressed', String(xboxActivo));
-    }
+    if ($('#mini-modo-barra')) $('#mini-modo-barra').hidden = true;
     if ($('#mini-adjuntar')) $('#mini-adjuntar').hidden = !xboxDisponible;
     if ($('#mini-pendiente')) {
       $('#mini-pendiente').hidden = !mini.pdf;
@@ -2742,6 +2759,11 @@
       ? (mini.pdf ? 'Instrucción para el PDF (opcional)…' : 'Pide un algoritmo o adjunta un PDF…')
       : 'Escríbele a Charlene…';
     actualizarEstadoBotonMini();
+    if (xboxActivo) {
+      caja.hidden = true;
+      return;
+    }
+    caja.hidden = false;
     if (!window.MiniDoof.instalada()) {
       if (xboxDisponible) caja.append(botonCasa('Instalar la llave de la Raspberry', '', pedirLlaveMini));
       return;
@@ -2783,8 +2805,8 @@
   }
 
   function pintarMini() {
-    pintarMensajesMini();
     pintarAccionesMini();
+    pintarMensajesMini();
   }
 
   async function preguntarAXboxMini(texto, archivo) {
@@ -3102,18 +3124,16 @@
     $('#mini-form').addEventListener('submit', enviarAMini);
     $('#mini-entrada').addEventListener('input', actualizarEstadoBotonMini);
     $('#mini-entrada').maxLength = modoXboxMiniActivo() ? 8000 : MAX_TEXTO_MINI;
-    $('#mini-modo-pi')?.addEventListener('click', () => {
-      mini.modo = 'pi';
-      guardar(CLAVE_MODO_MINI, 'pi');
+    const fijarModoMini = (modo) => {
+      mini.modo = modo;
+      if (modo === 'pi') mini.pdf = null;
+      guardar(CLAVE_MODO_MINI, modo);
       pintarAccionesMini();
       actualizarEstado();
-    });
-    $('#mini-modo-xbox')?.addEventListener('click', () => {
-      mini.modo = 'xbox';
-      guardar(CLAVE_MODO_MINI, 'xbox');
-      pintarAccionesMini();
-      actualizarEstado();
-    });
+    };
+    $('#btn-modo-mini')?.addEventListener('click', () => fijarModoMini(modoXboxMiniActivo() ? 'pi' : 'xbox'));
+    $('#mini-modo-pi')?.addEventListener('click', () => fijarModoMini('pi'));
+    $('#mini-modo-xbox')?.addEventListener('click', () => fijarModoMini('xbox'));
     $('#mini-adjuntar')?.addEventListener('click', () => $('#mini-archivo')?.click());
     $('#mini-archivo')?.addEventListener('change', (e) => {
       const archivo = e.target.files?.[0];

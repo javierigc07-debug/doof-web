@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-69eda3fde9';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-9db88d24a1';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -2826,9 +2826,10 @@
     pintarMensajesMini();
   }
 
-  async function extraerTextoPdfMini(archivo, maxChars = 10000) {
+  async function extraerTextoPdfMini(archivo, maxChars = 6500) {
     const lib = await cargarPdfJs();
-    const doc = await lib.getDocument({ data: new Uint8Array(await archivo.arrayBuffer()) }).promise;
+    const bytes = new Uint8Array(await archivo.arrayBuffer());
+    const doc = await lib.getDocument({ data: bytes, isEvalSupported: false, useSystemFonts: true }).promise;
     const partes = [];
     let total = 0;
     try {
@@ -2864,6 +2865,7 @@
     guardarChatMini(chat);
     actualizarBarra();
     pintarMini();
+    let esperandoPi = false;
     try {
       if (porPi) {
         let promptFinal = texto;
@@ -2874,6 +2876,7 @@
           const pedido = (texto || 'Analiza y resuelve paso a paso el contenido de este documento.').trim();
           promptFinal = `${pedido}\n\n--- CONTENIDO DEL PDF (${archivo.name}) ---\n${textoPdf}`;
         }
+        esperandoPi = true;
         if (!window.MiniDoof.abierta()) await window.MiniDoof.abrir();
         const final = await window.MiniDoof.pedir('xllama', {
           texto: promptFinal,
@@ -2897,7 +2900,7 @@
       }
     } catch (e) {
       Object.assign(respuesta, { texto: e.message || 'xllama no respondió.', fallo: true, esperando: false });
-      if (porPi) ponerConexionMini('caida');
+      if (esperandoPi) ponerConexionMini('caida');
     }
     mini.enVuelo.delete(respuesta.n);
     guardarChatMini(chat);

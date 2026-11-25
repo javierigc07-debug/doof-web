@@ -28,7 +28,14 @@
   const ALFABETO = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
   const texto = new TextEncoder();
-  const aB64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+  const aB64 = (bytes) => {
+    const vista = new Uint8Array(bytes);
+    let binario = '';
+    for (let i = 0; i < vista.length; i += 0x8000) {
+      binario += String.fromCharCode(...vista.subarray(i, i + 0x8000));
+    }
+    return btoa(binario);
+  };
   const deB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
   const pausa = (ms) => new Promise((listo) => setTimeout(listo, ms));
 

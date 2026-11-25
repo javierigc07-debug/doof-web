@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-9db88d24a1';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-7e1f36563d';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -2873,7 +2873,7 @@
           respuesta.texto = 'Leyendo el PDF en el teléfono';
           if (mini.chat === chat) pintarMensajesMini();
           const textoPdf = await extraerTextoPdfMini(archivo);
-          const pedido = (texto || 'Analiza y resuelve paso a paso el contenido de este documento.').trim();
+          const pedido = (texto || 'Resuelve directamente este documento con la solución completa en código funcional (sin repetir el enunciado ni dar rodeos):').trim();
           promptFinal = `${pedido}\n\n--- CONTENIDO DEL PDF (${archivo.name}) ---\n${textoPdf}`;
         }
         esperandoPi = true;

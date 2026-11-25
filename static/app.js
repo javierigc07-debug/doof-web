@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-4c93ca561a';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-3fc82e8c75';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -2832,9 +2832,12 @@
       }
       const seg = typeof d.segundos === 'number' ? d.segundos.toFixed(1) + ' s · ' : '';
       const tok = (d.entrada || d.salida) ? `${d.entrada || 0}+${d.salida || 0} tok · ` : '';
+      const tps = (typeof d.segundos === 'number' && d.segundos > 0 && d.salida)
+        ? `${(d.salida / d.segundos).toFixed(1)} tok/s · `
+        : '';
       Object.assign(respuesta, {
         texto: d.texto || '(respuesta vacía)',
-        meta: `${d.modelo || 'xllama'} · ${seg}${tok}$0.0000`,
+        meta: `${d.modelo || 'xllama'} · ${seg}${tok}${tps}$0.0000`,
         esperando: false,
       });
       delete respuesta.fallo;

@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-3fc82e8c75';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-3720c6ac52';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -931,7 +931,7 @@
 
     const enMini = S.vista === 'mini';
     const chipModo = $('#btn-modo-mini');
-    if (enMini && !pcCaida() && chipModo) {
+    if (enMini && xboxMiniDisponible() && chipModo) {
       const xboxActivo = modoXboxMiniActivo();
       $('#barra-sub').hidden = true;
       chipModo.hidden = false;
@@ -2404,12 +2404,15 @@
   const hayEsperasMini = () => mini.chats.some((c) => c.mensajes.some((m) => m.esperando));
 
   const pcCaida = () => S.conectado === false || !!S.pcFalla;
-  const modoXboxMiniActivo = () => !pcCaida() && (mini.modo === 'xbox' || !!mini.pdf);
+  const xboxMiniDisponible = () => window.MiniDoof.instalada() || !pcCaida();
+  const modoXboxMiniActivo = () => xboxMiniDisponible() && (mini.modo === 'xbox' || !!mini.pdf);
   const actualizarEstadoBotonMini = () => {
     const envio = $('#mini-enviar');
     if (envio) envio.disabled = miniOcupado() || (!$('#mini-entrada').value.trim() && !mini.pdf);
   };
-  const textoConexionMini = () => (modoXboxMiniActivo() ? 'Xbox directa (xllama)' : (TEXTO_CONEXION_MINI[mini.conexion] || ''));
+  const textoConexionMini = () => (modoXboxMiniActivo()
+    ? (window.MiniDoof.instalada() ? 'Xbox vía Raspberry (xllama)' : 'Xbox directa (PC)')
+    : (TEXTO_CONEXION_MINI[mini.conexion] || ''));
 
   function alCambiarConexionMini() {
     const caida = pcCaida();
@@ -2541,13 +2544,26 @@
     } catch (e) { /* sin llave o sin red: se reintenta al volver a la app */ }
   }
 
+  function formatoMetaXbox(d) {
+    if (!d || (!d.modelo && typeof d.segundos !== 'number')) return '';
+    const seg = typeof d.segundos === 'number' ? d.segundos.toFixed(1) + ' s · ' : '';
+    const tok = (d.entrada || d.salida) ? `${d.entrada || 0}+${d.salida || 0} tok · ` : '';
+    const tps = (typeof d.segundos === 'number' && d.segundos > 0 && d.salida)
+      ? `${(d.salida / d.segundos).toFixed(1)} tok/s · `
+      : '';
+    return `${d.modelo || 'xllama'} · ${seg}${tok}${tps}$0.0000`;
+  }
+
   function completarRespuestaMini(respuesta, final) {
     // La Pi le agrega a cada respuesta "💭 Charla libre: puedo inventar cosas...". Javier no la quiere en cada mensaje (6 nov 2026): el saludo ya lo dice una vez.
-    respuesta.texto = (final.texto || '').replace(/^\s*💭.*$/gmu, '').trim();
+    respuesta.texto = (final.texto || '').replace(/^\s*💭.*$/gmu, '').trim() || '(respuesta vacía)';
     if (final.imagen) respuesta.imagen = final.imagen;   // un dibujo de la Xbox (data URL ya armada en mini_doof.js)
     if (final.imagenIncompleta) respuesta.texto += '\n(El dibujo no llegó completo. Pídemelo otra vez.)';
+    const meta = formatoMetaXbox(final);
+    if (meta) respuesta.meta = meta;
     respuesta.esperando = false;
-    delete respuesta.fallo;
+    if (final.fallo) respuesta.fallo = true;
+    else delete respuesta.fallo;
   }
 
   // La respuesta a algo pedido antes de que el sistema cerrara la app (o que se dio por perdido): va a su chat aunque no sea el que está en pantalla.
@@ -2744,7 +2760,7 @@
   function pintarAccionesMini() {
     const caja = $('#mini-acciones');
     const formulario = $('#mini-form');
-    const xboxDisponible = !pcCaida();
+    const xboxDisponible = xboxMiniDisponible();
     const xboxActivo = modoXboxMiniActivo();
     caja.textContent = '';
     if ($('#mini-modo-barra')) $('#mini-modo-barra').hidden = true;
@@ -2809,11 +2825,38 @@
     pintarMensajesMini();
   }
 
+  async function extraerTextoPdfMini(archivo, maxChars = 10000) {
+    const lib = await cargarPdfJs();
+    const doc = await lib.getDocument({ data: new Uint8Array(await archivo.arrayBuffer()) }).promise;
+    const partes = [];
+    let total = 0;
+    try {
+      for (let i = 1; i <= doc.numPages && total < maxChars; i++) {
+        const pag = await doc.getPage(i);
+        const contenido = await pag.getTextContent();
+        const linea = contenido.items.map((x) => x.str || '').join(' ').replace(/\s+/g, ' ').trim();
+        if (linea) {
+          partes.push(linea);
+          total += linea.length + 2;
+        }
+      }
+    } finally {
+      await doc.destroy().catch(() => {});
+    }
+    let texto = partes.join('\n\n').trim();
+    if (!texto) throw new Error('No pude extraer texto legible de ese PDF.');
+    if (texto.length > maxChars) {
+      texto = texto.slice(0, maxChars) + `\n[Nota: documento recortado a los primeros ${maxChars} caracteres]`;
+    }
+    return texto;
+  }
+
   async function preguntarAXboxMini(texto, archivo) {
     const titulo = archivo ? (texto ? `📄 ${archivo.name}\n${texto}` : `📄 ${archivo.name}`) : texto;
     if (!mini.chat) usarChatMini({ id: idAlAzar(), titulo: titulo.slice(0, 60), creado: new Date().toISOString(), mensajes: [] });
     const chat = mini.chat;
-    const respuesta = { rol: 'bot', texto: 'Preguntándole a la Xbox (xllama)', esperando: true, enviado: Date.now() };
+    const porPi = window.MiniDoof.instalada();
+    const respuesta = { rol: 'bot', texto: porPi ? 'Conectando con la Raspberry' : 'Preguntándole a la Xbox (xllama)', esperando: true, enviado: Date.now() };
     chat.mensajes.push({ rol: 'usuario', texto: titulo }, respuesta);
     if (chat.mensajes.length > MAX_MENSAJES_MINI) chat.mensajes.splice(0, chat.mensajes.length - MAX_MENSAJES_MINI);
     mini.confirmando = null;
@@ -2821,29 +2864,41 @@
     actualizarBarra();
     pintarMini();
     try {
-      let d;
-      if (archivo) {
-        const datos = new FormData();
-        datos.append('archivo', archivo, archivo.name);
-        if (texto) datos.append('prompt', texto);
-        d = await api('/xllama', { method: 'POST', body: datos }, 185000);
+      if (porPi) {
+        let promptFinal = texto;
+        if (archivo) {
+          respuesta.texto = 'Leyendo el PDF en el teléfono';
+          if (mini.chat === chat) pintarMensajesMini();
+          const textoPdf = await extraerTextoPdfMini(archivo);
+          const pedido = (texto || 'Analiza y resuelve paso a paso el contenido de este documento.').trim();
+          promptFinal = `${pedido}\n\n--- CONTENIDO DEL PDF (${archivo.name}) ---\n${textoPdf}`;
+        }
+        if (!window.MiniDoof.abierta()) await window.MiniDoof.abrir();
+        const final = await window.MiniDoof.pedir('xllama', {
+          texto: promptFinal,
+          chat: chat.id,
+          alEnviar: (n) => { respuesta.n = n; mini.enVuelo.add(n); guardarChatMini(chat); },
+          alParcial: (m) => { respuesta.texto = m.texto || ''; if (mini.chat === chat) pintarMensajesMini(); },
+        });
+        completarRespuestaMini(respuesta, final);
+        ponerConexionMini('lista');
       } else {
-        d = await api('/xllama', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: texto }) }, 185000);
+        let d;
+        if (archivo) {
+          const datos = new FormData();
+          datos.append('archivo', archivo, archivo.name);
+          if (texto) datos.append('prompt', texto);
+          d = await api('/xllama', { method: 'POST', body: datos }, 185000);
+        } else {
+          d = await api('/xllama', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: texto }) }, 185000);
+        }
+        completarRespuestaMini(respuesta, d);
       }
-      const seg = typeof d.segundos === 'number' ? d.segundos.toFixed(1) + ' s · ' : '';
-      const tok = (d.entrada || d.salida) ? `${d.entrada || 0}+${d.salida || 0} tok · ` : '';
-      const tps = (typeof d.segundos === 'number' && d.segundos > 0 && d.salida)
-        ? `${(d.salida / d.segundos).toFixed(1)} tok/s · `
-        : '';
-      Object.assign(respuesta, {
-        texto: d.texto || '(respuesta vacía)',
-        meta: `${d.modelo || 'xllama'} · ${seg}${tok}${tps}$0.0000`,
-        esperando: false,
-      });
-      delete respuesta.fallo;
     } catch (e) {
       Object.assign(respuesta, { texto: e.message || 'xllama no respondió.', fallo: true, esperando: false });
+      if (porPi) ponerConexionMini('caida');
     }
+    mini.enVuelo.delete(respuesta.n);
     guardarChatMini(chat);
     if (mini.chat === chat) pintarMini();
   }

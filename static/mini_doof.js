@@ -363,6 +363,7 @@
     const n = alfanumerico(16);
     const peticion = { n, ts: Math.floor(Date.now() / 1000), accion };
     if (opciones.texto) peticion.texto = opciones.texto;
+    if (opciones.modelo) peticion.modelo = opciones.modelo;
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, propia.llave, texto.encode(JSON.stringify(peticion)));
     const carga = JSON.stringify({ v: 1, iv: aB64(iv), ct: aB64(ct) });
@@ -373,7 +374,7 @@
       };
       const pendiente = { cumplir, fallar, vencer, alParcial: opciones.alParcial };
       propia.pendientes.set(n, pendiente);
-      armar(pendiente, ESPERA_RESPUESTA_MS);
+      armar(pendiente, accion === 'xllama' ? ESPERA_CHARLA_MS : ESPERA_RESPUESTA_MS);
       if (opciones.alEnviar) opciones.alEnviar(n);      // la app lo guarda en el chat: si la cierran, la respuesta tardía sabe a dónde ir
       brokers.forEach((b) => b.publicar(`${propia.tema}/in/${destino}`, carga));
     });

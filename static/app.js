@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-cea3be92eb';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-861fa831cd';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -555,8 +555,9 @@
         await cargarAgentes();
         return;
       } else if (aprobacion.tipo === TIPO_CONTACTAR) {
-        avisar(`Listo: el agente te espera en la PC, en «${resultado.proyecto || 'el proyecto'}».`);
+        avisar(`Enviado a Antigravity en «${resultado.proyecto || 'el proyecto'}». Te aviso por el chat cuando termine.`);
         await cargarAprobaciones();
+        await cargarAgentes();
         return;
       } else if (aprobacion.tipo === TIPO_LLAVE) {
         await window.MiniDoof.instalar(resultado.clave);
@@ -731,9 +732,31 @@
     titulo.textContent = 'Instalar la llave de Charlene';
     const cuerpo = document.createElement('p');
     cuerpo.className = 'cuerpo';
-    cuerpo.textContent = 'Queda guardada en este teléfono y sirve con la PC apagada. Quien tenga el teléfono desbloqueado podrá encender la PC con ella.';
+    cuerpo.textContent = ES_REMOTO
+      ? 'Queda guardada en este teléfono y sirve con la PC apagada. Quien tenga el teléfono desbloqueado podrá encender la PC con ella.'
+      : 'En esta PC la llave ya vive aquí: puedes instalarla directo sin huella para abrir Charlene.';
     caja.append(titulo, cuerpo);
-    ponerAccionesDeHuella(caja, aprobacion, 'Instalar con huella', 'Para instalarla, primero activa la huella en este teléfono.');
+    if (!ES_REMOTO) {
+      const acciones = document.createElement('div');
+      acciones.className = 'acciones';
+      acciones.append(
+        botonDe('Instalar en esta PC', async (b) => {
+          b.disabled = true;
+          try {
+            await instalarLlaveLocalMini();
+            avisar('Llave de Charlene instalada en esta PC.');
+            await irASeccion('mini');
+          } catch (e) {
+            b.disabled = false;
+            avisar('No pude instalarla: ' + e.message);
+          }
+        }, true),
+        botonDe('Cancelar', () => cancelarAprobacion(aprobacion)),
+      );
+      caja.append(acciones);
+    } else {
+      ponerAccionesDeHuella(caja, aprobacion, 'Instalar con huella', 'Para instalarla, primero activa la huella en este teléfono.');
+    }
     return caja;
   }
 
@@ -759,15 +782,15 @@
     const caja = document.createElement('section');
     caja.className = 'aprobacion';
     const titulo = document.createElement('h3');
-    titulo.textContent = `Abrir un agente de ${r.agente || 'Antigravity'} en «${r.proyecto || 'el proyecto'}»`;
+    titulo.textContent = `Contactar a ${r.agente || 'Antigravity'} en «${r.proyecto || 'el proyecto'}»`;
     const texto = document.createElement('p');
     texto.className = 'cuerpo agente-texto-a-enviar';
     texto.textContent = r.texto || '';
     const nota = document.createElement('p');
     nota.className = 'cuerpo';
-    nota.textContent = 'Se abre una ventana en la PC con el agente ya trabajando en esto. Edita y corre comandos seguros por su cuenta; lo demás te lo pregunta en esa ventana.';
+    nota.textContent = 'Antigravity trabaja en segundo plano en ese proyecto y te avisa por el chat cuando termine. También queda en Agentes para leerlo y seguir hablándole.';
     caja.append(titulo, texto, nota);
-    ponerAccionesDeHuella(caja, aprobacion, 'Abrir con huella', 'Para abrir un agente desde la app, primero activa la huella en este teléfono.');
+    ponerAccionesDeHuella(caja, aprobacion, 'Enviar con huella', 'Para contactar un agente desde la app, primero activa la huella en este teléfono.');
     return caja;
   }
 
@@ -1666,7 +1689,9 @@
     A.boton.disabled = !d.puede_responder;
     A.nota.textContent = d.puede_responder
       ? 'Te pide la huella antes de enviarle nada. Su respuesta te llega por el chat.'
-      : d.agente !== 'claude_code' ? 'A este agente solo se le puede leer.' : 'Sigue trabajando: podrás responderle cuando termine.';
+      : (d.agente !== 'claude_code' && d.agente !== 'antigravity')
+        ? 'A este agente solo se le puede leer.'
+        : 'Sigue trabajando: podrás responderle cuando termine.';
   }
 
   async function pedirRespuestaAgente(boton) {
@@ -1683,8 +1708,8 @@
     boton.disabled = false;
   }
 
-  // «Contactar agente»: Javier elige un repo de la lista fija que manda Doof y escribe la mejora o el bug; tras la huella se abre en la PC una consola
-  // con la CLI de Antigravity trabajando en eso. Igual que el campo de responder, vive fuera de #agentes-contenido y se crea una sola vez.
+  // «Contactar agente»: Javier elige un repo de la lista fija que manda Doof y escribe la mejora o el bug; tras la huella Antigravity
+  // corre el pedido en segundo plano, aparece trabajando en Agentes, avisa por el chat al terminar y queda disponible para seguir hablándole.
   function pintarContactar() {
     const caja = $('#agente-contactar');
     if (!caja) return;
@@ -1702,7 +1727,7 @@
       c.campo.maxLength = MAX_RESPUESTA_AGENTE;
       c.campo.setAttribute('aria-label', 'Qué quieres que haga el agente');
       c.campo.placeholder = 'Qué mejora quieres o qué bug arreglar…';
-      c.boton = botonDe('Abrir con huella', pedirContactoAgente, true);
+      c.boton = botonDe('Enviar con huella', pedirContactoAgente, true);
       c.nota = elemento('p', 'casa-nota');
       c.form.append(c.proyecto, c.campo, c.boton, c.nota);
       caja.append(c.abrir, c.form);
@@ -1720,16 +1745,20 @@
     c.abrir.textContent = A.contactoAbierto ? 'Cerrar' : 'Contactar agente';
     c.abrir.className = A.contactoAbierto ? '' : 'principal';
     c.form.hidden = !A.contactoAbierto;
-    c.proyecto.disabled = c.campo.disabled = c.boton.disabled = !puede;
-    c.nota.textContent = puede
-      ? 'Se abre una ventana de Antigravity en la PC con el agente ya trabajando en esto. Te pide la huella antes.'
-      : 'No encuentro la CLI de Antigravity (agy) en la PC.';
+    c.proyecto.disabled = c.campo.disabled = !puede || !!A.enviandoContacto;
+    c.boton.disabled = !puede || !!A.enviandoContacto;
+    c.nota.textContent = !A.lista.puede_contactar
+      ? 'No encuentro la CLI de Antigravity (agy) en la PC.'
+      : !proyectos.length
+        ? 'No hay proyectos disponibles en la PC.'
+        : 'Antigravity trabaja en segundo plano en ese proyecto, te avisa por el chat al terminar y queda aquí para seguir hablándole.';
   }
 
   async function pedirContactoAgente(boton) {
     const c = A.contacto;
     const texto = c.campo.value.trim();
     if (!texto) { avisar('Escribe qué quieres que haga.'); return; }
+    A.enviandoContacto = true;
     boton.disabled = true;
     try {
       await postJson('/agentes/contactar', { proyecto: c.proyecto.value, texto });
@@ -1739,14 +1768,24 @@
     } catch (e) {
       avisar(e.message || 'No pude preparar el pedido.');
     }
-    boton.disabled = false;
+    A.enviandoContacto = false;
+    pintarContactar();
+  }
+
+  const etiquetaAgente = (tipo) => (tipo === 'antigravity' ? 'Antigravity' : tipo === 'claude_code' ? 'Claude Code' : '');
+
+  function metaAgente(a) {
+    const partes = [etiquetaAgente(a.agente), a.proyecto].filter(Boolean);
+    if (partes.length === 2 && partes[0] === partes[1]) partes.pop();
+    partes.push(`${a.estado === 'trabajando' ? 'trabajando desde' : 'libre desde'} ${a.hace}`);
+    return partes.join(' · ');
   }
 
   function filaAgente(a) {
     const b = elemento('button', 'agente-fila' + (a.estado === 'trabajando' ? ' trabajando' : ''));
     b.type = 'button';
     const texto = elemento('span', 'agente-texto');
-    texto.append(elemento('b', '', a.nombre), elemento('small', '', `${a.proyecto} · ${a.estado === 'trabajando' ? 'trabajando desde' : 'libre desde'} ${a.hace}`));
+    texto.append(elemento('b', '', a.nombre), elemento('small', '', metaAgente(a)));
     b.append(elemento('i', 'agente-punto'), texto);
     b.addEventListener('click', () => { A.abierto = a.id; A.detalle = null; A.detalleFalla = null; pintarAgentes(); cargarAgentes(); });
     return b;
@@ -1764,7 +1803,7 @@
       return;
     }
     const trabajando = d.estado === 'trabajando';
-    caja.appendChild(encabezadoCasa(trabajando ? 'alerta' : 'bien', d.nombre, `${d.proyecto} · ${trabajando ? 'trabajando desde' : 'libre desde'} ${d.hace}`));
+    caja.appendChild(encabezadoCasa(trabajando ? 'alerta' : 'bien', d.nombre, metaAgente(d)));
     if (d.titulo || d.pedido) {
       caja.appendChild(elemento('p', 'casa-subtitulo', 'Lo último que le pidieron'));
       caja.appendChild(elemento('p', 'agente-pedido', d.pedido || d.titulo));
@@ -1792,7 +1831,7 @@
     } else if (!A.lista) {
       caja.appendChild(encabezadoCasa('', 'Preguntándole a la PC…'));
     } else if (!A.lista.sesiones.length) {
-      caja.appendChild(encabezadoCasa('', 'No hay agentes abiertos', 'Cuando abras una sesión de Claude Code en la PC aparecerá aquí.'));
+      caja.appendChild(encabezadoCasa('', 'No hay agentes abiertos', 'Cuando abras una sesión de Claude Code o Antigravity en la PC aparecerá aquí.'));
     } else {
       const n = A.lista.trabajando;
       caja.appendChild(encabezadoCasa(n ? 'alerta' : 'bien', n ? `${n} trabajando` : 'Todos libres', n ? 'Te aviso por el chat cuando termine cada uno.' : 'Ninguno está ocupado ahora.'));
@@ -2404,7 +2443,7 @@
     const g = leerGuardado(CLAVE_MODELO_XBOX);
     return MODELOS_XBOX_VALIDOS.has(g) ? g : MODELO_XBOX_DEFECTO;
   };
-  const mini = { chat: null, chats: [], enVuelo: new Set(), menu: menuGuardadoMini(), menuAlDia: false, grupo: 'PC', confirmando: null, conexion: '', sinPc: false, relojAbrir: null, modo: leerGuardado(CLAVE_MODO_MINI) === 'xbox' ? 'xbox' : 'pi', modeloXbox: modeloXboxGuardado(), pdf: null };
+  const mini = { chat: null, chats: [], enVuelo: new Set(), menu: menuGuardadoMini(), menuAlDia: false, grupo: 'PC', confirmando: null, conexion: '', sinPc: false, relojAbrir: null, instalandoLocal: null, modo: leerGuardado(CLAVE_MODO_MINI) === 'xbox' ? 'xbox' : 'pi', modeloXbox: modeloXboxGuardado(), pdf: null };
   const MINI_SE_PERDIO = 'Esta respuesta no llegó: la app se cerró mientras la Raspberry contestaba y ya no la guarda. Pregúntamelo otra vez.';
   const miniOcupado = () => !!mini.chat && mini.chat.mensajes.some((m) => m.esperando);
   const idAlAzar = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -2437,9 +2476,39 @@
     if (S.vista === 'mini') pintarAccionesMini();
   }
 
+  async function instalarLlaveLocalMini() {
+    if (mini.instalandoLocal) return mini.instalandoLocal;
+    mini.instalandoLocal = (async () => {
+      ponerConexionMini('buscando');
+      const d = await postJson('/mini-doof/llave-local');
+      await window.MiniDoof.instalar(d.clave);
+      mini.menuAlDia = false;
+      if (S.aprobaciones.some((a) => a.tipo === TIPO_LLAVE)) {
+        await cargarAprobaciones();
+      }
+      actualizarBarra();
+      pintarMini();
+    })();
+    try {
+      await mini.instalandoLocal;
+    } catch (e) {
+      ponerConexionMini('');
+      throw e;
+    } finally {
+      mini.instalandoLocal = null;
+    }
+  }
+
   async function pedirLlaveMini(boton) {
     boton.disabled = true;
     try {
+      if (!ES_REMOTO) {
+        await instalarLlaveLocalMini();
+        avisar('Llave de Charlene instalada en esta PC.');
+        if (S.vista !== 'mini') await irASeccion('mini');
+        else await abrirMini();
+        return;
+      }
       await postJson('/mini-doof/pedir-llave');
       await irASeccion('pc');
       await cargarAprobaciones();
@@ -2460,6 +2529,9 @@
       caja.append(elemento('p', 'casa-nota', 'Contesta y puede encender la PC aunque esté apagada.'));
       caja.append(botonCasa('Abrir Charlene', '', () => irASeccion('mini')));
       if (!pcCaida() && !pedida) caja.append(botonCasa('Instalar la llave de nuevo', 'discreta', pedirLlaveMini));
+    } else if (!ES_REMOTO && !pcCaida()) {
+      caja.append(elemento('p', 'casa-nota', 'Vive en la Raspberry. En esta PC se abre directo sin huella.'));
+      caja.append(botonCasa('Abrir Charlene', '', () => irASeccion('mini')));
     } else if (pcCaida()) {
       caja.append(elemento('p', 'casa-nota', 'Este teléfono no tiene su llave, y solo se instala con la PC encendida.'));
     } else {
@@ -2471,7 +2543,19 @@
   // ---- su pantalla
   async function abrirMini() {
     pintarMini();
-    if (!window.MiniDoof.instalada()) return;
+    if (!window.MiniDoof.instalada()) {
+      if (!ES_REMOTO && S.token && !pcCaida()) {
+        try {
+          await instalarLlaveLocalMini();
+        } catch (e) {
+          avisar('No pude activar Charlene en esta PC: ' + e.message);
+          pintarMini();
+          return;
+        }
+      } else {
+        return;
+      }
+    }
     try {
       if (!window.MiniDoof.abierta()) await window.MiniDoof.abrir();
     } catch (e) {

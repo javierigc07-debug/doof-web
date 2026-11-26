@@ -1008,6 +1008,7 @@ body[data-vista="luz"] #compositor, body[data-vista="pc"] #compositor, body[data
   font-size: 15px; }
 .agente-proyecto { width: 100%; padding: 11px 12px; font: inherit; font-size: 15px; color: inherit; background: var(--superficie);
   border: 1px solid var(--borde); border-radius: var(--r-m); }
+.agente-proyecto option { color: var(--texto); background: var(--fondo); }
 .agente-campo { width: 100%; min-height: 84px; resize: vertical; padding: 12px 14px; font: inherit; font-size: 15px; line-height: 1.45; color: inherit;
   background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--r-m); }
 .agente-campo:disabled { opacity: .55; }

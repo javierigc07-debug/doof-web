@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-861fa831cd';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-b4140cab8e';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -1610,15 +1610,28 @@
     guardarCache();
   }
 
-  // Lo que escribe un agente viene en Markdown (títulos, listas, **negritas**, `código`). Se pinta con nodos DOM y textContent, nunca con innerHTML:
-  // el texto sale de una sesión con permisos sobre la PC y no debe poder inyectar HTML en la app. Solo los casos que de verdad escriben.
+  // Lo que escribe un agente viene en Markdown (títulos, listas, citas, **negritas**, `código`, [archivo](file://...) y [enlaces](https://...)).
+  // Se pinta con nodos DOM y textContent, nunca con innerHTML: el texto sale de una sesión con permisos sobre la PC y no debe poder inyectar HTML.
   function mdEnLinea(padre, texto) {
-    const re = /(\*\*[^*\n]+\*\*|`[^`\n]+`|\*[^*\s][^*\n]*\*)/g;
+    const re = /(\[[^\]\n]+\]\((?:https?:\/\/|file:\/\/\/)[^)\s]+\)|\*\*[^*\n]+\*\*|`[^`\n]+`|\*[^*\s][^*\n]*\*)/g;
     let ultimo = 0, m;
     while ((m = re.exec(texto))) {
       if (m.index > ultimo) padre.append(texto.slice(ultimo, m.index));
       const t = m[0];
-      if (t.startsWith('**')) padre.append(elemento('strong', '', t.slice(2, -2)));
+      if (t.startsWith('[')) {
+        const corte = t.indexOf('](');
+        const etiqueta = t.slice(1, corte);
+        const url = t.slice(corte + 2, -1);
+        if (url.startsWith('file:///')) {
+          padre.append(elemento('code', 'md-archivo', etiqueta));
+        } else {
+          const a = elemento('a', 'md-enlace', etiqueta);
+          a.href = url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          padre.append(a);
+        }
+      } else if (t.startsWith('**')) padre.append(elemento('strong', '', t.slice(2, -2)));
       else if (t.startsWith('`')) padre.append(elemento('code', '', t.slice(1, -1)));
       else padre.append(elemento('em', '', t.slice(1, -1)));
       ultimo = m.index + t.length;
@@ -1629,8 +1642,8 @@
   function renderMarkdown(texto) {
     const raiz = elemento('div', 'md');
     const lineas = String(texto || '').replace(/\r\n?/g, '\n').split('\n');
-    let lista = null, parrafo = null, codigo = null;
-    const cerrar = () => { lista = null; parrafo = null; };
+    let lista = null, parrafo = null, cita = null, codigo = null;
+    const cerrar = () => { lista = null; parrafo = null; cita = null; };
     for (const linea of lineas) {
       if (/^\s*```/.test(linea)) {                       // la fence abre y cierra un bloque de código
         if (codigo) { raiz.append(codigo.pre); codigo = null; } else { cerrar(); codigo = { pre: elemento('pre', 'md-codigo'), lineas: [] }; }
@@ -1639,15 +1652,25 @@
       if (codigo) { codigo.lineas.push(linea); codigo.pre.textContent = codigo.lineas.join('\n'); continue; }
       let m;
       if (!linea.trim()) { cerrar(); continue; }
-      if ((m = /^(#{1,6})\s+(.*)$/.exec(linea))) {
+      if (/^\s*([-*_])\1{2,}\s*$/.test(linea)) {
+        cerrar();
+        raiz.append(elemento('hr', 'md-sep'));
+      } else if ((m = /^(#{1,6})\s+(.*)$/.exec(linea))) {
         cerrar();
         const h = elemento('p', 'md-titulo n' + Math.min(m[1].length, 3));
         mdEnLinea(h, m[2]);
         raiz.append(h);
+      } else if ((m = /^\s*>\s?(.*)$/.exec(linea))) {
+        lista = null;
+        parrafo = null;
+        if (!cita) { cita = elemento('blockquote', 'md-cita'); raiz.append(cita); }
+        else cita.append(document.createElement('br'));
+        mdEnLinea(cita, m[1]);
       } else if ((m = /^\s*([-*•]|\d+[.)])\s+(.*)$/.exec(linea))) {
+        parrafo = null;
+        cita = null;
         const ordenada = /\d/.test(m[1]);
         if (!lista || lista.ordenada !== ordenada) {
-          parrafo = null;
           lista = { ordenada, el: elemento(ordenada ? 'ol' : 'ul', 'md-lista') };
           raiz.append(lista.el);
         }
@@ -1656,6 +1679,7 @@
         lista.el.append(li);
       } else {
         lista = null;
+        cita = null;
         if (!parrafo) { parrafo = elemento('p', 'md-parrafo'); raiz.append(parrafo); }
         else parrafo.append(document.createElement('br'));
         mdEnLinea(parrafo, linea.trim());
@@ -1675,23 +1699,37 @@
     caja.hidden = !d || esperandoHuella;
     if (caja.hidden) return;
     if (!A.campo) {
+      A.espera = elemento('div', 'agente-espera');
+      A.esperaPunto = elemento('i', 'agente-punto');
+      A.esperaTexto = elemento('span', '');
+      A.espera.append(A.esperaPunto, A.esperaTexto);
+      A.composer = elemento('div', 'agente-composer');
       A.campo = elemento('textarea', 'agente-campo');
       A.campo.rows = 3;
       A.campo.maxLength = MAX_RESPUESTA_AGENTE;
       A.campo.setAttribute('aria-label', 'Respuesta para el agente');
       A.campo.placeholder = 'Respóndele a este agente…';
+      A.composerPie = elemento('div', 'agente-composer-pie');
       A.nota = elemento('p', 'casa-nota');
       A.boton = botonDe('Responder', pedirRespuestaAgente, true);
-      caja.append(A.campo, A.boton, A.nota);
+      A.composerPie.append(A.nota, A.boton);
+      A.composer.append(A.campo, A.composerPie);
+      caja.append(A.espera, A.composer);
     }
     if (A.campoPara !== A.abierto) { A.campo.value = ''; A.campoPara = A.abierto; }     // el borrador de un agente no se le manda a otro
-    A.campo.disabled = !d.puede_responder;
-    A.boton.disabled = !d.puede_responder;
-    A.nota.textContent = d.puede_responder
-      ? 'Te pide la huella antes de enviarle nada. Su respuesta te llega por el chat.'
-      : (d.agente !== 'claude_code' && d.agente !== 'antigravity')
+    const puede = !!d.puede_responder;
+    A.composer.hidden = !puede;
+    A.espera.hidden = puede;
+    A.espera.classList.toggle('trabajando', d.estado === 'trabajando');
+    if (puede) {
+      A.campo.disabled = false;
+      A.boton.disabled = false;
+      A.nota.textContent = 'Pide tu huella antes de enviar. La respuesta llega por el chat.';
+    } else {
+      A.esperaTexto.textContent = (d.agente !== 'claude_code' && d.agente !== 'antigravity')
         ? 'A este agente solo se le puede leer.'
-        : 'Sigue trabajando: podrás responderle cuando termine.';
+        : 'Sigue trabajando — podrás responderle aquí apenas termine.';
+    }
   }
 
   async function pedirRespuestaAgente(boton) {
@@ -1792,33 +1830,92 @@
   }
 
   function pintarDetalleAgente(caja) {
-    caja.appendChild(botonCasa('‹ Todos los agentes', '', () => { A.abierto = null; pintarAgentes(); }));
+    const wrap = elemento('div', 'agente-detalle');
+    const nav = elemento('div', 'agente-nav');
+    nav.appendChild(botonCasa('‹ Todos los agentes', '', () => { A.abierto = null; pintarAgentes(); }));
     const d = A.detalle;
+    if (d) {
+      const chips = elemento('div', 'agente-chips');
+      const tipo = etiquetaAgente(d.agente);
+      if (tipo) chips.appendChild(elemento('span', 'agente-chip ' + (d.agente === 'antigravity' ? 'agy' : 'claude'), tipo));
+      if (d.proyecto && d.proyecto !== tipo) chips.appendChild(elemento('span', 'agente-chip', d.proyecto));
+      nav.appendChild(chips);
+    }
+    wrap.appendChild(nav);
+    caja.appendChild(wrap);
     if (A.detalleFalla) {
-      caja.appendChild(encabezadoCasa('', 'Esa sesión ya no está', 'Se cerró mientras la mirabas.'));
+      wrap.appendChild(encabezadoCasa('', 'Esa sesión ya no está', 'Se cerró mientras la mirabas.'));
       return;
     }
     if (!d) {
-      caja.appendChild(encabezadoCasa('', 'Leyendo la sesión…'));
+      wrap.appendChild(encabezadoCasa('', 'Leyendo la sesión…'));
       return;
     }
     const trabajando = d.estado === 'trabajando';
-    caja.appendChild(encabezadoCasa(trabajando ? 'alerta' : 'bien', d.nombre, metaAgente(d)));
+    const cab = elemento('div', 'agente-cab' + (trabajando ? ' trabajando' : ''));
+    const estadoFila = elemento('div', 'agente-estado-fila');
+    estadoFila.append(elemento('i', 'agente-punto'), elemento('span', '', `${trabajando ? 'Trabajando' : 'Libre'} · ${d.hace}`));
+    cab.append(elemento('h2', 'agente-titulo', d.nombre), estadoFila);
+    if (trabajando && d.actividad) {
+      const act = elemento('div', 'agente-actividad');
+      act.append(elemento('span', 'agente-actividad-etiqueta', 'Ahora'), elemento('span', 'agente-actividad-texto', d.actividad));
+      cab.appendChild(act);
+    }
+    wrap.appendChild(cab);
+
+    if (d.pasos && d.pasos.length) {
+      const hechos = d.pasos.filter((p) => p.estado === 'done').length;
+      const tarjetaPasos = elemento('div', 'agente-pasos');
+      const cabPasos = elemento('div', 'agente-pasos-cab');
+      cabPasos.append(elemento('span', '', 'Plan en curso'), elemento('small', '', `${hechos}/${d.pasos.length}`));
+      const listaPasos = elemento('ul', 'agente-pasos-lista');
+      const iconoPaso = { done: '✓', in_progress: '●', failed: '✕', skipped: '–', pending: '○' };
+      for (const p of d.pasos) {
+        const li = elemento('li', 'agente-paso ' + (p.estado || 'pending'));
+        li.append(elemento('span', 'agente-paso-ico', iconoPaso[p.estado] || '○'), elemento('span', '', p.titulo));
+        listaPasos.appendChild(li);
+      }
+      tarjetaPasos.append(cabPasos, listaPasos);
+      wrap.appendChild(tarjetaPasos);
+    }
+
+    if (d.archivos && d.archivos.length) {
+      const filaArch = elemento('div', 'agente-archivos');
+      filaArch.appendChild(elemento('span', 'agente-archivos-lbl', 'Archivos tocados'));
+      for (const nombre of d.archivos) filaArch.appendChild(elemento('code', 'md-archivo', nombre));
+      wrap.appendChild(filaArch);
+    }
+
+    const hilo = elemento('div', 'agente-hilo');
     if (d.titulo || d.pedido) {
-      caja.appendChild(elemento('p', 'casa-subtitulo', 'Lo último que le pidieron'));
-      caja.appendChild(elemento('p', 'agente-pedido', d.pedido || d.titulo));
+      const yo = elemento('div', 'agente-burbuja-yo');
+      yo.append(elemento('span', 'agente-rol', 'Tú'), elemento('p', 'agente-pedido', d.pedido || d.titulo));
+      hilo.appendChild(yo);
     }
-    caja.appendChild(elemento('p', 'casa-subtitulo', trabajando ? 'Lo que lleva dicho' : 'Lo que dejó'));
-    const resultado = elemento('div', 'agente-resultado');
-    if (d.resultado) resultado.append(renderMarkdown(d.resultado));
-    else resultado.textContent = trabajando ? 'Sigue en eso: todavía no ha escrito nada que mostrar.' : 'No dejó ningún texto.';
-    caja.appendChild(resultado);
-    if (d.mensajes && d.mensajes.length > 1) {
+
+    const msgs = d.mensajes && d.mensajes.length ? d.mensajes : (d.resultado ? [d.resultado] : []);
+    if (msgs.length > 2) {
       const mas = elemento('details', 'agente-mas');
-      mas.append(elemento('summary', '', `Mensajes anteriores del turno (${d.mensajes.length - 1})`));
-      for (const m of d.mensajes.slice(0, -1)) { const c = elemento('div', 'agente-resultado'); c.append(renderMarkdown(m)); mas.append(c); }
-      caja.appendChild(mas);
+      mas.append(elemento('summary', '', `Avances anteriores del turno (${msgs.length - 1})`));
+      for (const m of msgs.slice(0, -1)) {
+        const c = elemento('div', 'agente-resultado anterior');
+        c.append(renderMarkdown(m));
+        mas.append(c);
+      }
+      hilo.appendChild(mas);
+    } else if (msgs.length === 2) {
+      const prev = elemento('div', 'agente-resultado anterior');
+      prev.append(elemento('span', 'agente-rol', 'Antes en este turno'), renderMarkdown(msgs[0]));
+      hilo.appendChild(prev);
     }
+
+    const ultimo = elemento('div', 'agente-resultado principal');
+    const etiquetaIA = elemento('span', 'agente-rol', trabajando ? 'Lo último que dijo' : 'Respuesta');
+    ultimo.appendChild(etiquetaIA);
+    if (msgs.length) ultimo.append(renderMarkdown(msgs[msgs.length - 1]));
+    else ultimo.append(elemento('p', 'agente-vacio', trabajando ? 'Sigue en eso: todavía no ha escrito texto en este turno.' : 'No dejó ningún texto.'));
+    hilo.appendChild(ultimo);
+    wrap.appendChild(hilo);
   }
 
   function pintarAgentes() {
@@ -2438,7 +2535,7 @@
   const CLAVE_MODO_MINI = 'mini_doof_modo';
   const CLAVE_MODELO_XBOX = 'mini_doof_modelo_xbox';
   const MODELO_XBOX_DEFECTO = 'qwen3-1.7b';
-  const MODELOS_XBOX_VALIDOS = new Set(['qwen3-1.7b', 'qwen25-coder-1.5b', 'llama32-3b', 'lfm25-1.2b-instruct', 'lfm2-2.6b']);
+  const MODELOS_XBOX_VALIDOS = new Set(['qwen3-1.7b', 'qwen25-coder-1.5b', 'llama32-3b', 'gemma4-e2b', 'lfm25-1.2b-instruct', 'lfm2-2.6b']);
   const modeloXboxGuardado = () => {
     const g = leerGuardado(CLAVE_MODELO_XBOX);
     return MODELOS_XBOX_VALIDOS.has(g) ? g : MODELO_XBOX_DEFECTO;
@@ -2639,10 +2736,11 @@
     if (!d || (!d.modelo && typeof d.segundos !== 'number')) return '';
     const seg = typeof d.segundos === 'number' ? d.segundos.toFixed(1) + ' s · ' : '';
     const tok = (d.entrada || d.salida) ? `${d.entrada || 0}+${d.salida || 0} tok · ` : '';
+    const pas = (d.pasadas && d.pasadas > 1) ? `${d.pasadas} partes · ` : '';
     const tps = (typeof d.segundos === 'number' && d.segundos > 0 && d.salida)
       ? `${(d.salida / d.segundos).toFixed(1)} tok/s · `
       : '';
-    return `${d.modelo || 'xllama'} · ${seg}${tok}${tps}$0.0000`;
+    return `${d.modelo || 'xllama'} · ${seg}${tok}${pas}${tps}$0.0000`;
   }
 
   function completarRespuestaMini(respuesta, final) {
@@ -2921,7 +3019,7 @@
     pintarMensajesMini();
   }
 
-  async function extraerTextoPdfMini(archivo, maxChars = 6500) {
+  async function extraerTextoPdfMini(archivo, maxChars = 11000) {
     const lib = await cargarPdfJs();
     const bytes = new Uint8Array(await archivo.arrayBuffer());
     const doc = await lib.getDocument({ data: bytes, isEvalSupported: false, useSystemFonts: true }).promise;
@@ -2989,9 +3087,9 @@
           datos.append('archivo', archivo, archivo.name);
           if (texto) datos.append('prompt', texto);
           if (mini.modeloXbox) datos.append('modelo', mini.modeloXbox);
-          d = await api('/xllama', { method: 'POST', body: datos }, 185000);
+          d = await api('/xllama', { method: 'POST', body: datos }, 420000);
         } else {
-          d = await api('/xllama', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: texto, modelo: mini.modeloXbox }) }, 185000);
+          d = await api('/xllama', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: texto, modelo: mini.modeloXbox }) }, 420000);
         }
         completarRespuestaMini(respuesta, d);
       }

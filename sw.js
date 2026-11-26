@@ -3,17 +3,17 @@
    servir de una copia vieja, y por ella viaja el token, y la app ya sabe mostrar "PC sin conexión" sola.
    El bloque de push queda listo para la fase 3 (avisos con la app cerrada). */
 
-const VERSION = 'doofapp-4a46fb1615';
+const VERSION = 'doofapp-ddff65892a';
 // Con mala señal el HTML no debe esperar a que el fetch falle solo: pasado este tiempo se abre la copia guardada.
 const ESPERA_RED_NAVEGACION_MS = 2500;
 const CASCARON = [
   './',
   'manifest.webmanifest',
-  'static/app.css?v=4a46fb1615',
-  'static/app.js?v=4a46fb1615',
-  'static/mini_doof.js?v=4a46fb1615',
-  'static/radio.js?v=4a46fb1615',
-  'static/radio.css?v=4a46fb1615',
+  'static/app.css?v=ddff65892a',
+  'static/app.js?v=ddff65892a',
+  'static/mini_doof.js?v=ddff65892a',
+  'static/radio.js?v=ddff65892a',
+  'static/radio.css?v=ddff65892a',
   'static/iconos/ojo.svg',
   'static/iconos/icono-192.png',
   'static/iconos/icono-512.png',
@@ -50,7 +50,12 @@ self.addEventListener('fetch', (evento) => {
   if (pedido.mode === 'navigate') {
     evento.respondWith(
       Promise.race([
-        fetch(pedido.url, { cache: 'no-cache', credentials: 'same-origin' }).then((r) => (r.ok ? r : Promise.reject(new Error('http ' + r.status)))),     // el HTML manda: de él salen los ?v= de los demás archivos
+        fetch(pedido.url, { cache: 'no-cache', credentials: 'same-origin' }).then((r) => {
+          if (!r.ok) return Promise.reject(new Error('http ' + r.status));
+          const copia = r.clone();
+          caches.open(VERSION).then((cache) => cache.put('./', copia));
+          return r;
+        }),     // el HTML manda: de él salen los ?v= de los demás archivos
         new Promise((_, rechazar) => setTimeout(() => rechazar(new Error('lenta')), ESPERA_RED_NAVEGACION_MS)),
       ]).catch(() => caches.match('./').then((copia) => copia || fetch(pedido)))
     );
@@ -67,7 +72,7 @@ self.addEventListener('fetch', (evento) => {
           }
           return respuesta;
         })
-        .catch(() => cacheado);
+        .catch(() => cacheado || caches.match(pedido, { ignoreSearch: true }));
       return cacheado || red;
     })
   );

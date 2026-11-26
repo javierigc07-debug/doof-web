@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-4a46fb1615';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-ddff65892a';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -322,6 +322,8 @@
   }
 
   let proximaLecturaApi = 0;
+  let etagDireccionApi = '';
+  let datosDireccionApi = null;
 
   async function fetchConTiempo(url, opciones = {}, ms = 8000) {
     const control = new AbortController();
@@ -350,10 +352,19 @@
     }
 
     // Solo consulta api.github.com si raw falló o devolvió en caché la dirección vieja que ya probamos y no responde.
+    // Usa ETag (`If-None-Match`): un 304 Not Modified no consume cupo de las 60 consultas/h de la API REST.
     if (Date.now() >= proximaLecturaApi) {
       try {
-        const r = await fetchConTiempo(`${URL_DIRECCION}&_=${Date.now()}`, { headers: { Accept: 'application/vnd.github.raw' } }, 8000);
-        if (r.ok) return await abrirSobre(await r.json());
+        const cabeceras = { Accept: 'application/vnd.github.raw' };
+        if (etagDireccionApi) cabeceras['If-None-Match'] = etagDireccionApi;
+        const r = await fetchConTiempo(URL_DIRECCION, { headers: cabeceras }, 8000);
+        if (r.status === 304 && datosDireccionApi) return datosDireccionApi;
+        if (r.ok) {
+          const datos = await abrirSobre(await r.json());
+          etagDireccionApi = r.headers.get('ETag') || '';
+          datosDireccionApi = datos;
+          return datos;
+        }
         if (r.status === 403 || r.status === 429) proximaLecturaApi = Date.now() + ESPERA_SI_GITHUB_LIMITA_S * 1000;
         if (!desdeRaw) {
           const err = new Error('GitHub respondió ' + r.status);
@@ -400,7 +411,7 @@
   const T = { inicio: 0, enlinea: 0, alDia: 0, cache: 0 };     // tiempos (ms desde que abrió la página) para el diagnóstico del menú
 
   // /arranque entrega en un viaje lo que antes eran seis; con "ligera" solo se pregunta si la PC vive (volver al primer plano).
-  async function probarBase(ms = 6000, ligera = false) {
+  async function probarBase(ms = 10000, ligera = false) {
     if (ES_REMOTO && !S.base) return 'sin-red';
     if (!ligera && !S.sinArranque) {
       try {
@@ -453,13 +464,31 @@
       // Un link viejo o mal pegado no debe sacar a nadie: si no abre, sigue el camino normal.
       try { ponerBase((await abrirSobre(sobre)).url); } catch (e) { /* nada */ }
     }
+    const baseInicial = S.base;
     const prueba = probarBase();
     let primera = await Promise.race([prueba, esperar(3000, 'lenta')]);
     let lectura = null;
     if (primera === 'lenta') {
-      // La dirección guardada no contesta en 3 s: se va a buscar la nueva sin esperar el corte de la vieja.
-      if (ES_REMOTO) lectura = direccionPublicadaSiToca();
-      primera = await prueba;
+      // La dirección guardada no contesta en 3 s: busca la nueva en paralelo. Si llega una distinta antes de que venza la vieja, cambia de inmediato.
+      if (ES_REMOTO) {
+        lectura = direccionPublicadaSiToca();
+        const ganador = await Promise.race([
+          prueba.then((r) => ({ tipo: 'prueba', r })),
+          lectura.then((u) => ({ tipo: 'lectura', u })),
+        ]);
+        if (ganador.tipo === 'lectura') {
+          if (ganador.u === 'token') return 'token';
+          if (ganador.u && ganador.u !== baseInicial) {
+            ponerBase(ganador.u);
+            return probarBase();
+          }
+          primera = await prueba;
+        } else {
+          primera = ganador.r;
+        }
+      } else {
+        primera = await prueba;
+      }
     }
     if (primera !== 'sin-red' || !ES_REMOTO) return primera;
     const url = await (lectura || direccionPublicadaSiToca());
@@ -931,11 +960,13 @@
   }
 
   async function bucleNovedades(vuelta) {
+    let fallosSeguidos = 0;
     while (vuelta === S.vuelta) {
       await esperarVisible();
       try {
         const d = await api(`/novedades?desde=${S.cursor}&espera=${ESPERA_NOVEDADES_S}&pantalla=${PANTALLA}`, {}, (ESPERA_NOVEDADES_S + 10) * 1000);
         if (vuelta !== S.vuelta) return;
+        fallosSeguidos = 0;
         S.conectado = true;
         S.salud = !!d.hud;
         actualizarEstado();
@@ -954,6 +985,12 @@
       } catch (e) {
         if (vuelta !== S.vuelta || e.status === 401) return;
         if (e.status === 429) { await pausa(60000); continue; }
+        // Un microcorte de señal o reconexión de 2 s de cloudflared no debe tumbar la sesión de golpe: reintenta una vez en el mismo túnel.
+        if (fallosSeguidos === 0) {
+          fallosSeguidos = 1;
+          await pausa(2000);
+          continue;
+        }
         conectar();
         return;
       }
@@ -4817,6 +4854,7 @@
       cargarEstadoInicio();
     });
     window.addEventListener('online', revisarAlVolver);     // volvió la señal del teléfono: no hay por qué esperar al siguiente reintento
+    window.addEventListener('pageshow', (e) => { if (e.persisted) revisarAlVolver(); });
 
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();

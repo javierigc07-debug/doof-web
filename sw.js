@@ -3,17 +3,17 @@
    servir de una copia vieja, y por ella viaja el token, y la app ya sabe mostrar "PC sin conexión" sola.
    El bloque de push queda listo para la fase 3 (avisos con la app cerrada). */
 
-const VERSION = 'doofapp-b4140cab8e';
+const VERSION = 'doofapp-4a46fb1615';
 // Con mala señal el HTML no debe esperar a que el fetch falle solo: pasado este tiempo se abre la copia guardada.
 const ESPERA_RED_NAVEGACION_MS = 2500;
 const CASCARON = [
   './',
   'manifest.webmanifest',
-  'static/app.css?v=b4140cab8e',
-  'static/app.js?v=b4140cab8e',
-  'static/mini_doof.js?v=b4140cab8e',
-  'static/radio.js?v=b4140cab8e',
-  'static/radio.css?v=b4140cab8e',
+  'static/app.css?v=4a46fb1615',
+  'static/app.js?v=4a46fb1615',
+  'static/mini_doof.js?v=4a46fb1615',
+  'static/radio.js?v=4a46fb1615',
+  'static/radio.css?v=4a46fb1615',
   'static/iconos/ojo.svg',
   'static/iconos/icono-192.png',
   'static/iconos/icono-512.png',
@@ -50,7 +50,7 @@ self.addEventListener('fetch', (evento) => {
   if (pedido.mode === 'navigate') {
     evento.respondWith(
       Promise.race([
-        fetch(pedido.url, { cache: 'no-cache', credentials: 'same-origin' }),     // el HTML manda: de él salen los ?v= de los demás archivos
+        fetch(pedido.url, { cache: 'no-cache', credentials: 'same-origin' }).then((r) => (r.ok ? r : Promise.reject(new Error('http ' + r.status)))),     // el HTML manda: de él salen los ?v= de los demás archivos
         new Promise((_, rechazar) => setTimeout(() => rechazar(new Error('lenta')), ESPERA_RED_NAVEGACION_MS)),
       ]).catch(() => caches.match('./').then((copia) => copia || fetch(pedido)))
     );

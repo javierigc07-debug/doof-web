@@ -56,10 +56,13 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-b4140cab8e';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.25-4a46fb1615';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
+  // raw.githubusercontent.com no tiene el tope de 60 consultas/h por IP de api.github.com (25 nov 2026: la IP de la casa quedó en 403 y el teléfono no descubría el túnel).
+  // api.github.com queda solo como respaldo si raw trae en caché de 5 min la dirección vieja tras una rotación.
+  const URL_DIRECCION_RAW = 'https://raw.githubusercontent.com/javierigc07-debug/doof-web/tunel/tunel.json';
   const URL_DIRECCION = 'https://api.github.com/repos/javierigc07-debug/doof-web/contents/tunel.json?ref=tunel';
   const PATRON_TUNEL = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/;
   const ESPERA_NOVEDADES_S = 25;
@@ -67,9 +70,8 @@
   const PANTALLA = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
   // Probar la dirección conocida no gasta nada, así que se hace seguido: esperar hasta 5 min aquí dejaba a Javier sin app con la PC ya de vuelta (6 nov 2026).
   const REINTENTOS_S = [5, 5, 10, 10, 15];
-  // Lo que se espacia es leer la dirección publicada: GitHub da 60 lecturas por hora sin autenticar, y agotarlas dejaría a la app sin poder encontrar la PC cuando vuelva.
-  // Seguido al principio, porque la PC rehace el túnel en un par de minutos. Son unas 40 en la primera hora.
-  const espacioEntreLecturasS = (n) => (n < 6 ? 30 : n < 14 ? 60 : 120);
+  // Con raw.githubusercontent.com no se quema el cupo de 60/h de la API REST; aun así se espacia si la PC sigue apagada.
+  const espacioEntreLecturasS = (n) => (n < 6 ? 15 : n < 14 ? 30 : 60);
   const ESPERA_SI_GITHUB_LIMITA_S = 300;
   const REFRESCO_LUZ_MS = 15000;
   const REFRESCO_INICIO_MS = 30000;       // las tarjetas del inicio se renuevan solas mientras se mira
@@ -319,16 +321,53 @@
     return datos;
   }
 
-  async function leerDireccionPublicada() {
-    const r = await fetch(`${URL_DIRECCION}&_=${Date.now()}`, {
-      headers: { Accept: 'application/vnd.github.raw' }, cache: 'no-store', referrerPolicy: 'no-referrer',
-    });
-    if (!r.ok) {
-      const err = new Error('GitHub respondió ' + r.status);
-      err.limiteGitHub = r.status === 403 || r.status === 429;
-      throw err;
+  let proximaLecturaApi = 0;
+
+  async function fetchConTiempo(url, opciones = {}, ms = 8000) {
+    const control = new AbortController();
+    const reloj = setTimeout(() => control.abort(), ms);
+    try {
+      return await fetch(url, { cache: 'no-store', referrerPolicy: 'no-referrer', ...opciones, signal: control.signal });
+    } finally {
+      clearTimeout(reloj);
     }
-    return abrirSobre(await r.json());
+  }
+
+  async function leerDireccionPublicada() {
+    let desdeRaw = null;
+    let errorRaw = null;
+    try {
+      const r = await fetchConTiempo(`${URL_DIRECCION_RAW}?_=${Date.now()}`, {}, 8000);
+      if (r.ok) {
+        desdeRaw = await abrirSobre(await r.json());
+        if (desdeRaw.url && desdeRaw.url !== S.base) return desdeRaw;
+      } else {
+        errorRaw = new Error('raw GitHub respondió ' + r.status);
+      }
+    } catch (e) {
+      if (e.name === 'OperationError') throw e;
+      errorRaw = e;
+    }
+
+    // Solo consulta api.github.com si raw falló o devolvió en caché la dirección vieja que ya probamos y no responde.
+    if (Date.now() >= proximaLecturaApi) {
+      try {
+        const r = await fetchConTiempo(`${URL_DIRECCION}&_=${Date.now()}`, { headers: { Accept: 'application/vnd.github.raw' } }, 8000);
+        if (r.ok) return await abrirSobre(await r.json());
+        if (r.status === 403 || r.status === 429) proximaLecturaApi = Date.now() + ESPERA_SI_GITHUB_LIMITA_S * 1000;
+        if (!desdeRaw) {
+          const err = new Error('GitHub respondió ' + r.status);
+          err.limiteGitHub = r.status === 403 || r.status === 429;
+          throw err;
+        }
+      } catch (e) {
+        if (e.name === 'OperationError') throw e;
+        if (!desdeRaw) throw e;
+      }
+    }
+
+    if (desdeRaw) return desdeRaw;
+    throw errorRaw || new Error('no pude leer la dirección del túnel');
   }
 
   function sobreDelEnlace() {
@@ -376,7 +415,7 @@
       }
     }
     try {
-      const d = await api('/salud', {}, 10000, true);
+      const d = await api('/salud', {}, ms, true);
       S.salud = !!d.hud;
       return d.auth ? 'ok' : 'token';
     } catch (e) {
@@ -389,12 +428,11 @@
   let ultimaLecturaForzada = 0;
 
   // Al volver a primer plano o recuperar señal, el espaciado de lecturas no debe tener a la app esperando 1-2 min con la dirección nueva ya publicada.
-  // Tope de una cada 30 s: GitHub da 60 lecturas por hora por IP.
   function permitirLecturaYa() {
-    if (S.conectado === true || Date.now() - ultimaLecturaForzada < 30000) return;
+    if (S.conectado === true || Date.now() - ultimaLecturaForzada < 10000) return;
     ultimaLecturaForzada = Date.now();
     proximaLectura = 0;
-    lecturasDeDireccion = Math.min(lecturasDeDireccion, 3);
+    lecturasDeDireccion = Math.min(lecturasDeDireccion, 2);
   }
 
   // La dirección nueva, 'token' si el sobre no abre con este token, o null si no toca leer o no se pudo.
@@ -404,7 +442,6 @@
     try {
       return (await leerDireccionPublicada()).url;
     } catch (e) {
-      if (e.limiteGitHub) proximaLectura = Date.now() + ESPERA_SI_GITHUB_LIMITA_S * 1000;
       return e.name === 'OperationError' ? 'token' : null;
     }
   }
@@ -854,38 +891,42 @@
     const vuelta = ++S.vuelta;
     let intento = 0;
     T.inicio = Math.round(performance.now());
-    while (vuelta === S.vuelta) {
-      await esperarVisible();
-      const resultado = await intentarConexion();
-      if (vuelta !== S.vuelta) return;
-      if (resultado === 'token') {
-        mostrarLogin('Ese token no abre a Doof.');
-        return;
-      }
-      if (resultado === 'ok') {
-        lecturasDeDireccion = 0;
-        proximaLectura = 0;
-        // "En línea" apenas contestó la PC: el resto de la puesta al día ya no depende de ningún viaje largo.
-        S.conectado = true;
-        T.enlinea = Math.round(performance.now());
-        actualizarEstado();
-        try {
-          await ponerseAlDia();
-          if (vuelta !== S.vuelta) return;
-          S.conectando = false;
-          actualizarEstado();
-          bucleNovedades(vuelta);
-          cargarEstadoInicio();
+    try {
+      while (vuelta === S.vuelta) {
+        await esperarVisible();
+        const resultado = await intentarConexion();
+        if (vuelta !== S.vuelta) return;
+        if (resultado === 'token') {
+          mostrarLogin('Ese token no abre a Doof.');
           return;
-        } catch (e) {
-          if (e.status === 401) return;
         }
+        if (resultado === 'ok') {
+          lecturasDeDireccion = 0;
+          proximaLectura = 0;
+          // "En línea" apenas contestó la PC: el resto de la puesta al día ya no depende de ningún viaje largo.
+          S.conectado = true;
+          T.enlinea = Math.round(performance.now());
+          actualizarEstado();
+          try {
+            await ponerseAlDia();
+            if (vuelta !== S.vuelta) return;
+            S.conectando = false;
+            actualizarEstado();
+            bucleNovedades(vuelta);
+            cargarEstadoInicio();
+            return;
+          } catch (e) {
+            if (e.status === 401) return;
+          }
+        }
+        S.conectado = false;
+        S.salud = false;
+        actualizarEstado();
+        await pausa(REINTENTOS_S[Math.min(intento, REINTENTOS_S.length - 1)] * 1000);
+        intento += 1;
       }
-      S.conectado = false;
-      S.salud = false;
-      actualizarEstado();
-      await pausa(REINTENTOS_S[Math.min(intento, REINTENTOS_S.length - 1)] * 1000);
-      intento += 1;
+    } finally {
+      if (vuelta === S.vuelta) S.conectando = false;
     }
   }
 
@@ -4730,6 +4771,14 @@
 
     window.addEventListener('popstate', alGestoAtras);
 
+    $('#estado-pc')?.addEventListener('click', () => {
+      if (S.conectado === true && S.salud !== false) return;
+      ultimaLecturaForzada = 0;
+      permitirLecturaYa();
+      despertar();
+      avisar('Reconectando con la PC…');
+      if (!S.conectando) conectar();
+    });
     $('#estado-casa').addEventListener('click', (e) => {
       const destino = e.target.closest('[data-destino]')?.dataset.destino;
       if (destino) irASeccion(destino);

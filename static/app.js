@@ -56,7 +56,7 @@
   };
 
   const NOMBRE = 'Javier';
-  const VERSION = '2026.11.25-ddff65892a';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
+  const VERSION = '2026.11.26-1f303fc437';       // al publicar (publicar_web.py) queda 'AAAA.MM.DD-<id>': se ve al pie del menú, para saber qué versión corre de verdad en el teléfono
   const MAX_MENSAJES = 200;
   const MAX_BYTES = 25 * 1024 * 1024;
   const ES_REMOTO = location.hostname.endsWith('.github.io');
@@ -2612,8 +2612,8 @@
   // demás que figure esperando quedó de una página que el sistema cerró, y solo puede llegar como respuesta tardía.
   const CLAVE_MODO_MINI = 'mini_doof_modo';
   const CLAVE_MODELO_XBOX = 'mini_doof_modelo_xbox';
-  const MODELO_XBOX_DEFECTO = 'qwen3-1.7b';
-  const MODELOS_XBOX_VALIDOS = new Set(['qwen3-1.7b', 'qwen25-coder-1.5b', 'llama32-3b', 'gemma4-e2b', 'lfm25-1.2b-instruct', 'lfm2-2.6b']);
+  const MODELO_XBOX_DEFECTO = 'auto';
+  const MODELOS_XBOX_VALIDOS = new Set(['auto', 'qwen25-coder-1.5b', 'qwen3-1.7b', 'llama32-3b', 'gemma4-e2b', 'lfm25-1.2b-instruct', 'lfm2-2.6b']);
   const modeloXboxGuardado = () => {
     const g = leerGuardado(CLAVE_MODELO_XBOX);
     return MODELOS_XBOX_VALIDOS.has(g) ? g : MODELO_XBOX_DEFECTO;
@@ -3165,9 +3165,9 @@
           datos.append('archivo', archivo, archivo.name);
           if (texto) datos.append('prompt', texto);
           if (mini.modeloXbox) datos.append('modelo', mini.modeloXbox);
-          d = await api('/xllama', { method: 'POST', body: datos }, 420000);
+          d = await api('/xllama', { method: 'POST', body: datos }, 900000);
         } else {
-          d = await api('/xllama', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: texto, modelo: mini.modeloXbox }) }, 420000);
+          d = await api('/xllama', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: texto, modelo: mini.modeloXbox }) }, 900000);
         }
         completarRespuestaMini(respuesta, d);
       }

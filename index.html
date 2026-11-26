@@ -16,8 +16,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="static/iconos/ojo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="static/iconos/icono-192.png">
-  <link rel="stylesheet" href="static/app.css?v=ddff65892a">
-  <link rel="stylesheet" href="static/radio.css?v=ddff65892a">
+  <link rel="stylesheet" href="static/app.css?v=1f303fc437">
+  <link rel="stylesheet" href="static/radio.css?v=1f303fc437">
 </head>
 <body>
 
@@ -275,12 +275,13 @@
         <div id="mini-modelo-barra" class="mini-modelo-barra" hidden>
           <label for="mini-modelo" class="mini-modelo-etiqueta">Modelo Xbox</label>
           <select id="mini-modelo" class="mini-modelo-select" aria-label="Modelo de xllama en Xbox">
-            <option value="qwen3-1.7b">Qwen3 1.7B · código</option>
-            <option value="qwen25-coder-1.5b">Qwen2.5 Coder 1.5B · código</option>
-            <option value="llama32-3b">Llama 3.2 3B · general</option>
+            <option value="auto">Auto · elige el mejor modelo</option>
+            <option value="phi4-mini">Phi-4 Mini 3.8B · 4K ctx (mejor)</option>
+            <option value="qwen25-coder-1.5b">Qwen2.5 Coder 1.5B · código (4K ctx)</option>
+            <option value="qwen3-1.7b">Qwen3 1.7B · razonamiento</option>
+            <option value="llama32-3b">Llama 3.2 3B · español</option>
             <option value="gemma4-e2b">Gemma 4 E2B · general</option>
-            <option value="lfm25-1.2b-instruct">LFM 2.5 1.2B · rápido</option>
-            <option value="lfm2-2.6b">LFM 2 2.6B</option>
+            <option value="lfm25-1.2b-instruct">LFM 2.5 1.2B · GPU rápido</option>
           </select>
         </div>
         <div id="mini-pendiente" class="mini-pendiente" hidden>
@@ -598,8 +599,8 @@
 <input type="file" id="archivo-galeria" accept="image/*" hidden>
 <input type="file" id="archivo-general" hidden>
 
-<script src="static/mini_doof.js?v=ddff65892a" defer></script>
-<script src="static/app.js?v=ddff65892a" defer></script>
-<script src="static/radio.js?v=ddff65892a" defer></script>
+<script src="static/mini_doof.js?v=1f303fc437" defer></script>
+<script src="static/app.js?v=1f303fc437" defer></script>
+<script src="static/radio.js?v=1f303fc437" defer></script>
 </body>
 </html>
